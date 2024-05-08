@@ -1,49 +1,48 @@
 #!/bin/bash
 
-# Runs the "175B" parameter model
-
-# Please change the following envrioment variables
-# base on the cluster configuration
-export OMP_NUM_THREADS=4
-export MUSA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
-export MUSA_KERNEL_TIMEOUT=3200000
-export NCCL_PROTOS=2
-export CUDA_DEVICE_MAX_CONNECTIONS=1
-MEGATRON_PATH=${MEGATRON_PATCH_PATH}/Megatron-LM-240419
-export PYTHONPATH=${MEGATRON_PATH}:${MEGATRON_PATCH_PATH}:$PYTHONPATH
-
 set -u
-  PROJ_HOME=$1
-  EXPNAME=$2
-  HOSTFILE=$3
-  DATA_DIR=$4
-  TP_SIZE=$5
-  PP_SIZE=$6
-  MICRO_BATCH_SIZE=$7
-  GLOBAL_BATCH_SIZE=$8
-  TOKENIZED_MODEL=$9
+  WORK_HOME=$1
+  PATCH_HOME=$2
+  EXPNAME=$3
+  HOSTFILE=$4
+  DATA_DIR=$5
+  TP_SIZE=$6
+  PP_SIZE=$7
+  MICRO_BATCH_SIZE=$8
+  GLOBAL_BATCH_SIZE=$9
+  TOKENIZED_MODEL=${10}
 set +u
 
-CHECKPOINT_PATH=$PROJ_HOME/checkpoints/$EXPNAME
+export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+export OMP_NUM_THREADS=4
+export CUDA_VISIBLE_DEVICES='5,6'
+export NCCL_PROTOS=2
+export CUDA_DEVICE_MAX_CONNECTIONS=1
+MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240419
+export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
+
+
+CHECKPOINT_PATH=$WORK_HOME/checkpoints/$EXPNAME
 mkdir -p $CHECKPOINT_PATH
-DATA_PATH=$DATA_DIR/oscar_merge
+DATA_PATH=$DATA_DIR/oscar_9_text_document
 
 
-LOG_PATH=$PROJ_HOME/logs/$EXPNAME
+LOG_PATH=$WORK_HOME/logs/$EXPNAME
 mkdir -p $LOG_PATH
 cp $0 $LOG_PATH/
-TB_PATH=$PROJ_HOME/tboard/$EXPNAME
+TB_PATH=$WORK_HOME/tboard/$EXPNAME
 mkdir -p $TB_PATH
-WB_PATH=$PROJ_HOME/wandb/$EXPNAME
+WB_PATH=$WORK_HOME/wandb/$EXPNAME
 mkdir -p $WB_PATH
 
 
 
 export NODE_ADDR=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2;}'|tr -d "addr:"|head -n 1)
-export GPUS_PER_NODE=8
+export GPUS_PER_NODE=2
 export NUM_NODES=$(cat $HOSTFILE | wc -l)
 export MASTER_ADDR=$(head -n1 $HOSTFILE | awk '{print $1;}')
-export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks["'$NODE_ADDR'"];}' $HOSTFILE)
+#export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks["'$NODE_ADDR'"];}' $HOSTFILE)
+export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks[$NODE_ADDR];}' $HOSTFILE)
 export MASTER_PORT=12355
 
 
@@ -56,22 +55,21 @@ DISTRIBUTED_ARGS=(
 )
 
 MODEL_ARGS=(
-    --num-layers 96 
-    --hidden-size 12288 
-    --num-attention-heads 96 
-    --seq-length 2048 
-    --max-position-embeddings 2048 
+    --num-layers 12 
+    --hidden-size 768 
+    --num-attention-heads 12 
+    --seq-length 512 
+    --max-position-embeddings 512 
     --norm-epsilon 1e-5 
     --disable-bias-linear 
     --use-rotary-position-embeddings 
     --no-position-embedding 
     --swiglu 
-    --multiple-of 256 
-    --normalization RMSNorm
+    --normalization LayerNorm
     --untie-embeddings-and-output-weights
 )
 
-# 24414062 1T
+# 244140625 1T
 TRAINING_ARGS=(
     --seed 42 
     --micro-batch-size $MICRO_BATCH_SIZE 
@@ -87,7 +85,6 @@ TRAINING_ARGS=(
     --recompute-method block 
     --recompute-num-layers 0 
     --distributed-backend mccl 
-    --device-type mthreads 
 )
 
 REGULARIZATION_ARGS=(
@@ -141,24 +138,26 @@ DATA_ARGS="
 
 EVAL_AND_LOGGING_ARGS=(
     --log-interval 1
-    --save-interval 180 
+    --save-interval 2000 
     --eval-interval 1000 
     --save $CHECKPOINT_PATH 
     --load $CHECKPOINT_PATH 
     --eval-iters 0
-    --tensorboard-dir $TENSORBOARD_LOGS_PATH 
+    --tensorboard-dir $TB_PATH 
 )
 
-if [ -n "${WANDB_API_KEY}" ]; then
-    EVAL_AND_LOGGING_ARGS+=(
-        --wandb-project ${WANDB_PROJECT:-"Mixtral-Finetuning"}
-        --wandb-exp-name ${WANDB_NAME:-"Mixtral_8x7B"} 
-    )
-fi
+# if [ -n "${WANDB_API_KEY}" ]; then
+#     EVAL_AND_LOGGING_ARGS+=(
+#         --wandb-project ${WANDB_PROJECT:-"Mixtral-Finetuning"}
+#         --wandb-exp-name ${WANDB_NAME:-"Mixtral_8x7B"} 
+#     )
+# fi
 
-cmd="torchrun ${DISTRIBUTED_ARGS[@]} pretrain_gpt.py \
+cmd="torchrun ${DISTRIBUTED_ARGS[@]} $MEGATRON_PATH/pretrain_gpt.py \
         ${MODEL_ARGS[@]} \
         ${TRAINING_ARGS[@]} \
+        ${REGULARIZATION_ARGS[@]}
+        ${LEARNING_RATE_ARGS[@]} \
         ${MODEL_PARALLEL_ARGS[@]} \
         ${MIXED_PRECISION_ARGS[@]}
         ${DATA_ARGS[@]} \
