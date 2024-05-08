@@ -67,7 +67,7 @@ MODEL_ARGS=(
     --no-position-embedding 
     --swiglu 
     --multiple-of 256 
-    --normalization RMSNorm
+    --normalization LayerNorm
     --untie-embeddings-and-output-weights
 )
 

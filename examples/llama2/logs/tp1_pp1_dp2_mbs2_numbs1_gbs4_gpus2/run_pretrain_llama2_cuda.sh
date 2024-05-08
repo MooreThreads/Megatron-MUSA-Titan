@@ -41,7 +41,8 @@ export NODE_ADDR=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{p
 export GPUS_PER_NODE=2
 export NUM_NODES=$(cat $HOSTFILE | wc -l)
 export MASTER_ADDR=$(head -n1 $HOSTFILE | awk '{print $1;}')
-export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks["'$NODE_ADDR'"];}' $HOSTFILE)
+#export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks["'$NODE_ADDR'"];}' $HOSTFILE)
+export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks[$NODE_ADDR];}' $HOSTFILE)
 export MASTER_PORT=12355
 
 
@@ -68,7 +69,7 @@ MODEL_ARGS=(
     --untie-embeddings-and-output-weights
 )
 
-# 24414062 1T
+# 244140625 1T
 TRAINING_ARGS=(
     --seed 42 
     --micro-batch-size $MICRO_BATCH_SIZE 
@@ -137,7 +138,7 @@ DATA_ARGS="
 
 EVAL_AND_LOGGING_ARGS=(
     --log-interval 1
-    --save-interval 180 
+    --save-interval 2000 
     --eval-interval 1000 
     --save $CHECKPOINT_PATH 
     --load $CHECKPOINT_PATH 
