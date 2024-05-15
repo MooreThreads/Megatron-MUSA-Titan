@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Runs the "175B" parameter model
+
+# Please change the following envrioment variables
+# base on the cluster configuration
 set -u
   WORK_HOME=$1
   PATCH_HOME=$2
@@ -12,14 +16,15 @@ set -u
   GLOBAL_BATCH_SIZE=$9
   TOKENIZED_MODEL=${10}
 set +u
-
 export OMP_NUM_THREADS=4
-export CUDA_VISIBLE_DEVICES='2,3'
+export MUSA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
+export MUSA_KERNEL_TIMEOUT=3200000
+export ACCELERATOR_BACKEND="musa"
 export NCCL_PROTOS=2
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240419
+MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240419-musa
 export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
-
+# export MUSA_LAUNCH_BLOCKING=1
 
 CHECKPOINT_PATH=$WORK_HOME/checkpoints/$EXPNAME
 mkdir -p $CHECKPOINT_PATH
@@ -42,6 +47,7 @@ export NUM_NODES=$(cat $HOSTFILE | wc -l)
 export MASTER_ADDR=$(head -n1 $HOSTFILE | awk '{print $1;}')
 export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks["'$NODE_ADDR'"];}' $HOSTFILE)
 export MASTER_PORT=12355
+# export MUSA_LAUNCH_BLOCKING=1
 
 
 DISTRIBUTED_ARGS=(
@@ -53,14 +59,19 @@ DISTRIBUTED_ARGS=(
 )
 
 MODEL_ARGS=(
-    --num-layers 96 
-    --hidden-size 12288 
-    --num-attention-heads 96 
-    --seq-length 2048 
-    --max-position-embeddings 2048 
+    --num-layers 32 
+    --hidden-size 2048 
+    --num-attention-heads 16 
+    --seq-length 4096 
+    --max-position-embeddings 4096 
     --norm-epsilon 1e-5 
+    --init-method-std 0.01 
+    --attention-dropout 0.0 
+    --hidden-dropout 0.0 
     --disable-bias-linear 
-    --use-rotary-position-embeddings 
+    --vocab-size=32000
+    --ffn-hidden-size 5504
+    --position-embedding-type rope 
     --no-position-embedding 
     --swiglu 
     --normalization RMSNorm
@@ -83,11 +94,10 @@ TRAINING_ARGS=(
     --recompute-method block 
     --recompute-num-layers 0 
     --distributed-backend nccl 
+    --transformer-impl local
 )
 
 REGULARIZATION_ARGS=(
-    --attention-dropout 0.0 
-    --hidden-dropout 0.0 
     --weight-decay 0.1 
     --adam-beta1 0.9 
     --adam-beta2 0.95 
@@ -112,7 +122,7 @@ MODEL_PARALLEL_ARGS=(
 )
 
 MIXED_PRECISION_ARGS=(
-    --fp16 
+    --bf16 
     --attention-softmax-in-fp32 
     --no-masked-softmax-fusion 
     --accumulate-allreduce-grads-in-fp32
@@ -136,7 +146,7 @@ DATA_ARGS="
 
 EVAL_AND_LOGGING_ARGS=(
     --log-interval 1
-    --save-interval 180 
+    --save-interval 2000 
     --eval-interval 1000 
     --save $CHECKPOINT_PATH 
     --load $CHECKPOINT_PATH 
@@ -144,6 +154,15 @@ EVAL_AND_LOGGING_ARGS=(
     --tensorboard-dir $TB_PATH 
 )
 
+MOE_ARGS=(
+    --num-experts 8
+    --expert-model-parallel-size 8
+    --moe-token-dispatcher-type alltoall
+    --moe-router-load-balancing-type aux_loss
+    --moe-router-topk 2
+    --moe-aux-loss-coeff 1e-2
+    --moe-z-loss-coeff 1e-3
+)
 # if [ -n "${WANDB_API_KEY}" ]; then
 #     EVAL_AND_LOGGING_ARGS+=(
 #         --wandb-project ${WANDB_PROJECT:-"Mixtral-Finetuning"}
@@ -151,7 +170,7 @@ EVAL_AND_LOGGING_ARGS=(
 #     )
 # fi
 
-cmd="torchrun ${DISTRIBUTED_ARGS[@]} pretrain_gpt.py \
+cmd="torchrun ${DISTRIBUTED_ARGS[@]} $WORK_HOME/pretrain_mixtral.py \
         ${MODEL_ARGS[@]} \
         ${TRAINING_ARGS[@]} \
         ${REGULARIZATION_ARGS[@]}
@@ -159,6 +178,7 @@ cmd="torchrun ${DISTRIBUTED_ARGS[@]} pretrain_gpt.py \
         ${MODEL_PARALLEL_ARGS[@]} \
         ${MIXED_PRECISION_ARGS[@]}
         ${DATA_ARGS[@]} \
+        ${MOE_ARGS[@]} \
         ${EVAL_AND_LOGGING_ARGS[@]}
     "
 echo $cmd

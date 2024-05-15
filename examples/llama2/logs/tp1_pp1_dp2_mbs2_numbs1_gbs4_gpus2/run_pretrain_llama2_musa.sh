@@ -12,10 +12,10 @@ set -u
   GLOBAL_BATCH_SIZE=$9
   TOKENIZED_MODEL=${10}
 set +u
-
-export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 export OMP_NUM_THREADS=4
-export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
+export MUSA_LAUNCH_BLOCKING=1
+export MUSA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
+export MUSA_KERNEL_TIMEOUT=3200000
 export NCCL_PROTOS=2
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240419
@@ -42,6 +42,7 @@ export GPUS_PER_NODE=8
 export NUM_NODES=$(cat $HOSTFILE | wc -l)
 export MASTER_ADDR=$(head -n1 $HOSTFILE | awk '{print $1;}')
 export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks["'$NODE_ADDR'"];}' $HOSTFILE)
+# export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks[$NODE_ADDR];}' $HOSTFILE)
 export MASTER_PORT=12355
 
 
@@ -60,8 +61,11 @@ MODEL_ARGS=(
     --seq-length 512 
     --max-position-embeddings 512 
     --norm-epsilon 1e-5 
+    --init-method-std 0.01 
+    --attention-dropout 0.0 
+    --hidden-dropout 0.0 
     --disable-bias-linear 
-    --use-rotary-position-embeddings 
+    --position-embedding-type rope 
     --no-position-embedding 
     --swiglu 
     --normalization RMSNorm
@@ -87,8 +91,6 @@ TRAINING_ARGS=(
 )
 
 REGULARIZATION_ARGS=(
-    --attention-dropout 0.0 
-    --hidden-dropout 0.0 
     --weight-decay 0.1 
     --adam-beta1 0.9 
     --adam-beta2 0.95 
@@ -137,22 +139,12 @@ DATA_ARGS="
 
 EVAL_AND_LOGGING_ARGS=(
     --log-interval 1
-    --save-interval 2000
+    --save-interval 2000 
     --eval-interval 1000 
     --save $CHECKPOINT_PATH 
     --load $CHECKPOINT_PATH 
     --eval-iters 0
     --tensorboard-dir $TB_PATH 
-)
-
-MOE_ARGS=(
-    --num-experts 8
-    --expert-model-parallel-size 2
-    --moe-token-dispatcher-type alltoall
-    --moe-router-load-balancing-type aux_loss
-    --moe-router-topk 2
-    --moe-aux-loss-coeff 1e-2
-    --moe-z-loss-coeff 1e-3
 )
 
 # if [ -n "${WANDB_API_KEY}" ]; then
@@ -162,7 +154,7 @@ MOE_ARGS=(
 #     )
 # fi
 
-cmd="torchrun ${DISTRIBUTED_ARGS[@]} $MEGATRON_PATH/pretrain_gpt.py \
+cmd="torchrun ${DISTRIBUTED_ARGS[@]} $WORK_HOME/pretrain_gpt.py \
         ${MODEL_ARGS[@]} \
         ${TRAINING_ARGS[@]} \
         ${REGULARIZATION_ARGS[@]}
@@ -170,7 +162,6 @@ cmd="torchrun ${DISTRIBUTED_ARGS[@]} $MEGATRON_PATH/pretrain_gpt.py \
         ${MODEL_PARALLEL_ARGS[@]} \
         ${MIXED_PRECISION_ARGS[@]}
         ${DATA_ARGS[@]} \
-        ${MOE_ARGS[@]} \
         ${EVAL_AND_LOGGING_ARGS[@]}
     "
 echo $cmd

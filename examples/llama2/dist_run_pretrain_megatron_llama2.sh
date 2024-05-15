@@ -15,10 +15,10 @@ echo $DP_SIZE
 echo $GLOBAL_BATCH_SIZE
 
 set -u
-  WORK_HOME=/home/dist/wzx/megatron-lm-musa-patch/examples/llama2
-  PATCH_HOME=/home/dist/wzx/megatron-lm-musa-patch
+  WORK_HOME=/data2/yutian.rong/projects/megatron-lm-musa-patch/examples/llama2
+  PATCH_HOME=/data2/yutian.rong/projects/megatron-lm-musa-patch
   EXPNAME="tp${TP_SIZE}_pp${PP_SIZE}_dp${DP_SIZE}_mbs${MICRO_BATCH_SIZE}_numbs${NUM_MICROBATCHES}_gbs${GLOBAL_BATCH_SIZE}_gpus${WORLD_SIZE}"
-  DATA_PATH=/home/dist/wzx/oscar
+  DATA_PATH=/data0/haoran.huang/oscar
   HOSTFILE=./hostfile
   LOG_FILE=./output/$CURRENT_TIME/$EXPNAME.log
   TOKENIZED_MODEL=./llama_config/tokenizer.model

@@ -4,9 +4,9 @@ CURRENT_TIME=$(date "+%Y-%m-%d_%H:%M:%S")
 echo $CURRENT_TIME
 mkdir -p ./output/$CURRENT_TIME
 
-TP_SIZE=1
+TP_SIZE=2
 PP_SIZE=1
-WORLD_SIZE=2
+WORLD_SIZE=8
 MICRO_BATCH_SIZE=2
 NUM_MICROBATCHES=1
 (( DP_SIZE = $WORLD_SIZE / ($TP_SIZE * $PP_SIZE) ))
@@ -15,10 +15,10 @@ echo $DP_SIZE
 echo $GLOBAL_BATCH_SIZE
 
 set -u
-  WORK_HOME=/home/dist/wzx/megatron-lm-musa-patch/examples/llama2
-  PATCH_HOME=/home/dist/wzx/megatron-lm-musa-patch
+  WORK_HOME=${WORKSPACE_ROOT}/megatron-lm-musa-patch/examples/llama2
+  PATCH_HOME=${WORKSPACE_ROOT}/megatron-lm-musa-patch
   EXPNAME="tp${TP_SIZE}_pp${PP_SIZE}_dp${DP_SIZE}_mbs${MICRO_BATCH_SIZE}_numbs${NUM_MICROBATCHES}_gbs${GLOBAL_BATCH_SIZE}_gpus${WORLD_SIZE}"
-  DATA_PATH=/home/dist/wzx/oscar
+  DATA_PATH=/home/dist/dataset/oscar
   HOSTFILE=./hostfile
   LOG_FILE=./output/$CURRENT_TIME/$EXPNAME.log
   TOKENIZED_MODEL=./llama_config/tokenizer.model
@@ -42,8 +42,8 @@ done
 COUNT=0
 hostlist=$(grep -v '^#\|^$' $HOSTFILE | awk '{print $1}' | xargs)
 for host in ${hostlist[@]}; do
-
   cmd_ssh=$cmd" > $LOG_FILE.$COUNT.$host 2>&1'"
+  # cmd_ssh=$cmd" '"
   echo $cmd_ssh
   ssh -f -n $host $cmd_ssh
   # echo $host, "bash -c 'cd $FlagScale_HOME/megatron; nohup bash $SCRIPT_FILE $PROJ_HOME $EXPNAME $HOSTFILE \"$DATA_PATH\" >> $LOG_FILE.$COUNT.$host 2>&1 &'"

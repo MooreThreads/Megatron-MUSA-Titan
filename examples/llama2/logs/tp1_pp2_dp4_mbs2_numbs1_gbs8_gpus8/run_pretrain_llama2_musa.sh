@@ -12,14 +12,14 @@ set -u
   GLOBAL_BATCH_SIZE=$9
   TOKENIZED_MODEL=${10}
 set +u
-
 export OMP_NUM_THREADS=4
-export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
+export MUSA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
+export MUSA_KERNEL_TIMEOUT=3200000
 export NCCL_PROTOS=2
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240419
 export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
-
+# export MUSA_LAUNCH_BLOCKING=1
 
 CHECKPOINT_PATH=$WORK_HOME/checkpoints/$EXPNAME
 mkdir -p $CHECKPOINT_PATH
@@ -41,6 +41,7 @@ export GPUS_PER_NODE=8
 export NUM_NODES=$(cat $HOSTFILE | wc -l)
 export MASTER_ADDR=$(head -n1 $HOSTFILE | awk '{print $1;}')
 export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks["'$NODE_ADDR'"];}' $HOSTFILE)
+# export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks[$NODE_ADDR];}' $HOSTFILE)
 export MASTER_PORT=12355
 
 
@@ -53,13 +54,11 @@ DISTRIBUTED_ARGS=(
 )
 
 MODEL_ARGS=(
-    --num-layers 32 
-    --hidden-size 4096 
-    --num-attention-heads 32 
-    --num-query-groups 8
-    --ffn-hidden-size 14336 
-    --seq-length 2048 
-    --max-position-embeddings 32768 
+    --num-layers 2
+    --hidden-size 768 
+    --num-attention-heads 12 
+    --seq-length 512 
+    --max-position-embeddings 512 
     --norm-epsilon 1e-5 
     --init-method-std 0.01 
     --attention-dropout 0.0 
@@ -72,12 +71,13 @@ MODEL_ARGS=(
     --untie-embeddings-and-output-weights
 )
 
-# 24414062 1T
+# 244140625 1T
 TRAINING_ARGS=(
     --seed 42 
     --micro-batch-size $MICRO_BATCH_SIZE 
     --global-batch-size $GLOBAL_BATCH_SIZE  
     --train-samples 24414062 
+    --init-method-std 0.0165 
     --use-mcore-models 
     --no-gradient-accumulation-fusion 
     --use-distributed-optimizer 
@@ -87,6 +87,7 @@ TRAINING_ARGS=(
     --recompute-method block 
     --recompute-num-layers 0 
     --distributed-backend nccl 
+    --transformer-impl local
 )
 
 REGULARIZATION_ARGS=(
@@ -114,7 +115,7 @@ MODEL_PARALLEL_ARGS=(
 )
 
 MIXED_PRECISION_ARGS=(
-    --bf16
+    --bf16 
     --attention-softmax-in-fp32 
     --no-masked-softmax-fusion 
     --accumulate-allreduce-grads-in-fp32
@@ -138,21 +139,12 @@ DATA_ARGS="
 
 EVAL_AND_LOGGING_ARGS=(
     --log-interval 1
-    --save-interval 180 
+    --save-interval 2000 
     --eval-interval 1000 
     --save $CHECKPOINT_PATH 
     --load $CHECKPOINT_PATH 
     --eval-iters 0
     --tensorboard-dir $TB_PATH 
-)
-
-MOE_ARGS=(
-    --num-experts 8
-    --expert-model-parallel-size 4
-    --moe-router-load-balancing-type aux_loss
-    --moe-router-topk 2
-    --moe-aux-loss-coeff 1e-2
-    --moe-z-loss-coeff 1e-3
 )
 
 # if [ -n "${WANDB_API_KEY}" ]; then
@@ -162,7 +154,7 @@ MOE_ARGS=(
 #     )
 # fi
 
-cmd="torchrun ${DISTRIBUTED_ARGS[@]} pretrain_gpt.py \
+cmd="torchrun ${DISTRIBUTED_ARGS[@]} $WORK_HOME/pretrain_gpt.py \
         ${MODEL_ARGS[@]} \
         ${TRAINING_ARGS[@]} \
         ${REGULARIZATION_ARGS[@]}

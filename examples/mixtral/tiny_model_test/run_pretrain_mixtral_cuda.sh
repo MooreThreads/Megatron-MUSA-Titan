@@ -17,6 +17,7 @@ export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 export OMP_NUM_THREADS=4
 export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
 export NCCL_PROTOS=2
+export ACCELERATOR_BACKEND="cuda"
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240419
 export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
@@ -38,7 +39,7 @@ mkdir -p $WB_PATH
 
 
 export NODE_ADDR=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2;}'|tr -d "addr:"|head -n 1)
-export GPUS_PER_NODE=8
+export GPUS_PER_NODE=4
 export NUM_NODES=$(cat $HOSTFILE | wc -l)
 export MASTER_ADDR=$(head -n1 $HOSTFILE | awk '{print $1;}')
 export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks["'$NODE_ADDR'"];}' $HOSTFILE)
@@ -54,14 +55,17 @@ DISTRIBUTED_ARGS=(
 )
 
 MODEL_ARGS=(
-    --num-layers 12 
+    --num-layers 2 
     --hidden-size 768 
     --num-attention-heads 12 
     --seq-length 512 
     --max-position-embeddings 512 
     --norm-epsilon 1e-5 
+    --init-method-std 0.01 
+    --attention-dropout 0.0 
+    --hidden-dropout 0.0 
     --disable-bias-linear 
-    --use-rotary-position-embeddings 
+    --position-embedding-type rope 
     --no-position-embedding 
     --swiglu 
     --normalization RMSNorm
@@ -87,8 +91,6 @@ TRAINING_ARGS=(
 )
 
 REGULARIZATION_ARGS=(
-    --attention-dropout 0.0 
-    --hidden-dropout 0.0 
     --weight-decay 0.1 
     --adam-beta1 0.9 
     --adam-beta2 0.95 
@@ -162,7 +164,7 @@ MOE_ARGS=(
 #     )
 # fi
 
-cmd="torchrun ${DISTRIBUTED_ARGS[@]} $MEGATRON_PATH/pretrain_gpt.py \
+cmd="torchrun ${DISTRIBUTED_ARGS[@]} $WORK_HOME/pretrain_mixtral.py \
         ${MODEL_ARGS[@]} \
         ${TRAINING_ARGS[@]} \
         ${REGULARIZATION_ARGS[@]}

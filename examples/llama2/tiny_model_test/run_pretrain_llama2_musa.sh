@@ -12,15 +12,16 @@ set -u
   GLOBAL_BATCH_SIZE=$9
   TOKENIZED_MODEL=${10}
 set +u
-
-export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 export OMP_NUM_THREADS=4
-export CUDA_VISIBLE_DEVICES='5,6'
+export MUSA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
+export MUSA_KERNEL_TIMEOUT=3200000
+export ACCELERATOR_BACKEND="musa"
 export NCCL_PROTOS=2
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240419
-export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
 
+MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240419-musa
+export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
+# export MUSA_LAUNCH_BLOCKING=1
 
 CHECKPOINT_PATH=$WORK_HOME/checkpoints/$EXPNAME
 mkdir -p $CHECKPOINT_PATH
@@ -38,11 +39,11 @@ mkdir -p $WB_PATH
 
 
 export NODE_ADDR=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2;}'|tr -d "addr:"|head -n 1)
-export GPUS_PER_NODE=2
+export GPUS_PER_NODE=8
 export NUM_NODES=$(cat $HOSTFILE | wc -l)
 export MASTER_ADDR=$(head -n1 $HOSTFILE | awk '{print $1;}')
-#export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks["'$NODE_ADDR'"];}' $HOSTFILE)
-export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks[$NODE_ADDR];}' $HOSTFILE)
+export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks["'$NODE_ADDR'"];}' $HOSTFILE)
+# export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks[$NODE_ADDR];}' $HOSTFILE)
 export MASTER_PORT=12355
 
 
@@ -55,17 +56,20 @@ DISTRIBUTED_ARGS=(
 )
 
 MODEL_ARGS=(
-    --num-layers 12 
+    --num-layers 12
     --hidden-size 768 
     --num-attention-heads 12 
     --seq-length 512 
     --max-position-embeddings 512 
     --norm-epsilon 1e-5 
+    --init-method-std 0.01 
+    --attention-dropout 0.0 
+    --hidden-dropout 0.0 
     --disable-bias-linear 
-    --use-rotary-position-embeddings 
+    --position-embedding-type rope 
     --no-position-embedding 
     --swiglu 
-    --normalization LayerNorm
+    --normalization RMSNorm
     --untie-embeddings-and-output-weights
 )
 
@@ -84,12 +88,11 @@ TRAINING_ARGS=(
     --recompute-granularity full 
     --recompute-method block 
     --recompute-num-layers 0 
-    --distributed-backend mccl 
+    --distributed-backend nccl 
+    --transformer-impl local
 )
 
 REGULARIZATION_ARGS=(
-    --attention-dropout 0.0 
-    --hidden-dropout 0.0 
     --weight-decay 0.1 
     --adam-beta1 0.9 
     --adam-beta2 0.95 
@@ -114,7 +117,7 @@ MODEL_PARALLEL_ARGS=(
 )
 
 MIXED_PRECISION_ARGS=(
-    --fp16 
+    --bf16 
     --attention-softmax-in-fp32 
     --no-masked-softmax-fusion 
     --accumulate-allreduce-grads-in-fp32
@@ -153,7 +156,7 @@ EVAL_AND_LOGGING_ARGS=(
 #     )
 # fi
 
-cmd="torchrun ${DISTRIBUTED_ARGS[@]} $MEGATRON_PATH/pretrain_gpt.py \
+cmd="torchrun ${DISTRIBUTED_ARGS[@]} $WORK_HOME/pretrain_gpt.py \
         ${MODEL_ARGS[@]} \
         ${TRAINING_ARGS[@]} \
         ${REGULARIZATION_ARGS[@]}

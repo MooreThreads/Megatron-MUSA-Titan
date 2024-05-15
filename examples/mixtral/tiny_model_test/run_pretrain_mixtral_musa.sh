@@ -1,9 +1,6 @@
 #!/bin/bash
 
-# Runs the "175B" parameter model
 
-# Please change the following envrioment variables
-# base on the cluster configuration
 set -u
   WORK_HOME=$1
   PATCH_HOME=$2
@@ -20,10 +17,11 @@ export OMP_NUM_THREADS=4
 export MUSA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
 export MUSA_KERNEL_TIMEOUT=3200000
 export NCCL_PROTOS=2
+export ACCELERATOR_BACKEND="musa"
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240419
+MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240419-musa
 export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
-
+# export MUSA_LAUNCH_BLOCKING=1
 
 CHECKPOINT_PATH=$WORK_HOME/checkpoints/$EXPNAME
 mkdir -p $CHECKPOINT_PATH
@@ -46,6 +44,7 @@ export NUM_NODES=$(cat $HOSTFILE | wc -l)
 export MASTER_ADDR=$(head -n1 $HOSTFILE | awk '{print $1;}')
 export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks["'$NODE_ADDR'"];}' $HOSTFILE)
 export MASTER_PORT=12355
+# export MUSA_LAUNCH_BLOCKING=1
 
 
 DISTRIBUTED_ARGS=(
@@ -63,8 +62,11 @@ MODEL_ARGS=(
     --seq-length 512 
     --max-position-embeddings 512 
     --norm-epsilon 1e-5 
+    --init-method-std 0.01 
+    --attention-dropout 0.0 
+    --hidden-dropout 0.0 
     --disable-bias-linear 
-    --use-rotary-position-embeddings 
+    --position-embedding-type rope 
     --no-position-embedding 
     --swiglu 
     --normalization RMSNorm
@@ -86,12 +88,11 @@ TRAINING_ARGS=(
     --recompute-granularity full 
     --recompute-method block 
     --recompute-num-layers 0 
-    --distributed-backend mccl 
+    --distributed-backend nccl 
+    --transformer-impl local
 )
 
 REGULARIZATION_ARGS=(
-    --attention-dropout 0.0 
-    --hidden-dropout 0.0 
     --weight-decay 0.1 
     --adam-beta1 0.9 
     --adam-beta2 0.95 
@@ -150,7 +151,7 @@ EVAL_AND_LOGGING_ARGS=(
 
 MOE_ARGS=(
     --num-experts 8
-    --expert-model-parallel-size 2
+    --expert-model-parallel-size 4
     --moe-token-dispatcher-type alltoall
     --moe-router-load-balancing-type aux_loss
     --moe-router-topk 2
@@ -164,7 +165,7 @@ MOE_ARGS=(
 #     )
 # fi
 
-cmd="torchrun ${DISTRIBUTED_ARGS[@]} $MEGATRON_PATH/pretrain_gpt.py \
+cmd="torchrun ${DISTRIBUTED_ARGS[@]} $WORK_HOME/pretrain_mixtral.py \
         ${MODEL_ARGS[@]} \
         ${TRAINING_ARGS[@]} \
         ${REGULARIZATION_ARGS[@]}
