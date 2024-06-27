@@ -48,6 +48,7 @@ class FusedLayerNorm(torch.nn.Module):
         normalization: str = "LayerNorm",  # included to match TE interface
     ):
         super().__init__()
+        print("use FusedLayerNorm")
 
         self.config = config
 
@@ -99,10 +100,3 @@ class FusedLayerNorm(torch.nn.Module):
 
 import megatron.core.fusions.fused_layer_norm
 megatron.core.fusions.fused_layer_norm.FusedLayerNorm = FusedLayerNorm
-
-# import sys
-# for k in sys.modules:
-#     if k.startswith('megatron.core.fusions.fused_layer_norm'):
-        # for target in ['FusedLayerNorm']:
-        #     if getattr(sys.modules[k], target, None):
-        #         setattr(sys.modules[k], target, FusedLayerNorm)

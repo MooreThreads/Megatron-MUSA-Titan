@@ -19,7 +19,7 @@ export CUDA_VISIBLE_DEVICES='5,6'
 export ACCELERATOR_BACKEND="cuda"
 export NCCL_PROTOS=2
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240419
+MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-2405
 export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
 
 
@@ -89,6 +89,7 @@ TRAINING_ARGS=(
     --recompute-method block 
     --recompute-num-layers 0 
     --distributed-backend nccl 
+    --transformer-impl local
 )
 
 REGULARIZATION_ARGS=(

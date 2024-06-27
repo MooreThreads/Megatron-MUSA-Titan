@@ -15,10 +15,11 @@ set +u
 export OMP_NUM_THREADS=4
 export MUSA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
 export MUSA_KERNEL_TIMEOUT=3200000
+export ACCELERATOR_BACKEND="musa"
 export NCCL_PROTOS=2
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 
-MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240419
+MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240521
 export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
 # export MUSA_LAUNCH_BLOCKING=1
 
@@ -38,12 +39,12 @@ mkdir -p $WB_PATH
 
 
 export NODE_ADDR=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2;}'|tr -d "addr:"|head -n 1)
-export GPUS_PER_NODE=8
+export GPUS_PER_NODE=4
 export NUM_NODES=$(cat $HOSTFILE | wc -l)
 export MASTER_ADDR=$(head -n1 $HOSTFILE | awk '{print $1;}')
 export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks["'$NODE_ADDR'"];}' $HOSTFILE)
 # export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks[$NODE_ADDR];}' $HOSTFILE)
-export MASTER_PORT=12355
+export MASTER_PORT=12389
 
 
 DISTRIBUTED_ARGS=(
@@ -58,8 +59,8 @@ MODEL_ARGS=(
     --num-layers 12
     --hidden-size 768 
     --num-attention-heads 12 
-    --seq-length 512 
-    --max-position-embeddings 512 
+    --seq-length 4096 
+    --max-position-embeddings 4096 
     --norm-epsilon 1e-5 
     --init-method-std 0.01 
     --attention-dropout 0.0 
@@ -68,6 +69,7 @@ MODEL_ARGS=(
     --position-embedding-type rope 
     --no-position-embedding 
     --swiglu 
+    --vocab-size 32000
     --normalization RMSNorm
     --untie-embeddings-and-output-weights
 )
@@ -81,7 +83,7 @@ TRAINING_ARGS=(
     --init-method-std 0.0165 
     --use-mcore-models 
     --no-gradient-accumulation-fusion 
-    # --use-distributed-optimizer 
+    --use-distributed-optimizer 
     --use-flash-attn 
     --sequence-parallel 
     --recompute-granularity full 
@@ -116,7 +118,7 @@ MODEL_PARALLEL_ARGS=(
 )
 
 MIXED_PRECISION_ARGS=(
-    --fp16 
+    --bf16 
     --attention-softmax-in-fp32 
     --no-masked-softmax-fusion 
     --accumulate-allreduce-grads-in-fp32

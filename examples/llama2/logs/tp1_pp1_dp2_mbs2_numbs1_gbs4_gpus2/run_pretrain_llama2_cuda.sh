@@ -16,7 +16,6 @@ set +u
 export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 export OMP_NUM_THREADS=4
 export CUDA_VISIBLE_DEVICES='5,6'
-export ACCELERATOR_BACKEND="cuda"
 export NCCL_PROTOS=2
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240419
@@ -62,11 +61,8 @@ MODEL_ARGS=(
     --seq-length 512 
     --max-position-embeddings 512 
     --norm-epsilon 1e-5 
-    --init-method-std 0.01 
-    --attention-dropout 0.0 
-    --hidden-dropout 0.0 
     --disable-bias-linear 
-    --position-embedding-type rope 
+    --use-rotary-position-embeddings 
     --no-position-embedding 
     --swiglu 
     --normalization RMSNorm
@@ -92,6 +88,8 @@ TRAINING_ARGS=(
 )
 
 REGULARIZATION_ARGS=(
+    --attention-dropout 0.0 
+    --hidden-dropout 0.0 
     --weight-decay 0.1 
     --adam-beta1 0.9 
     --adam-beta2 0.95 
@@ -140,7 +138,7 @@ DATA_ARGS="
 
 EVAL_AND_LOGGING_ARGS=(
     --log-interval 1
-    --save-interval 2000
+    --save-interval 2000 
     --eval-interval 1000 
     --save $CHECKPOINT_PATH 
     --load $CHECKPOINT_PATH 
@@ -155,7 +153,7 @@ EVAL_AND_LOGGING_ARGS=(
 #     )
 # fi
 
-cmd="torchrun ${DISTRIBUTED_ARGS[@]} $WORK_HOME/pretrain_gpt.py \
+cmd="torchrun ${DISTRIBUTED_ARGS[@]} $MEGATRON_PATH/pretrain_gpt.py \
         ${MODEL_ARGS[@]} \
         ${TRAINING_ARGS[@]} \
         ${REGULARIZATION_ARGS[@]}

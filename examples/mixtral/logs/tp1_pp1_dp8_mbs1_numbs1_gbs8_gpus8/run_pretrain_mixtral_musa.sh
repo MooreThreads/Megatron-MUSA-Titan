@@ -22,7 +22,7 @@ export MUSA_KERNEL_TIMEOUT=3200000
 export ACCELERATOR_BACKEND="musa"
 export NCCL_PROTOS=2
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240419
+MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240521
 export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
 # export MUSA_LAUNCH_BLOCKING=1
 
@@ -69,7 +69,7 @@ MODEL_ARGS=(
     --attention-dropout 0.0 
     --hidden-dropout 0.0 
     --disable-bias-linear 
-    --vocab-size=32000
+    --vocab-size=256000
     --ffn-hidden-size 5504
     --position-embedding-type rope 
     --no-position-embedding 
@@ -92,7 +92,7 @@ TRAINING_ARGS=(
     --sequence-parallel 
     --recompute-granularity full 
     --recompute-method block 
-    --recompute-num-layers 0 
+    --recompute-num-layers 32 
     --distributed-backend nccl 
     --transformer-impl local
 )
@@ -162,6 +162,7 @@ MOE_ARGS=(
     --moe-router-topk 2
     --moe-aux-loss-coeff 1e-2
     --moe-z-loss-coeff 1e-3
+    --moe-expert-capacity-factor 4.0 
 )
 # if [ -n "${WANDB_API_KEY}" ]; then
 #     EVAL_AND_LOGGING_ARGS+=(

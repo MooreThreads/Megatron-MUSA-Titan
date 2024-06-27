@@ -4,11 +4,11 @@ CURRENT_TIME=$(date "+%Y-%m-%d_%H:%M:%S")
 echo $CURRENT_TIME
 mkdir -p ./output/$CURRENT_TIME
 
-TP_SIZE=2
-PP_SIZE=1
+TP_SIZE=1
+PP_SIZE=2
 WORLD_SIZE=8
 MICRO_BATCH_SIZE=2
-NUM_MICROBATCHES=1
+NUM_MICROBATCHES=10
 (( DP_SIZE = $WORLD_SIZE / ($TP_SIZE * $PP_SIZE) ))
 echo $DP_SIZE
 (( GLOBAL_BATCH_SIZE = $MICRO_BATCH_SIZE * $NUM_MICROBATCHES * $DP_SIZE ))
@@ -35,7 +35,7 @@ hostlist=$(grep -v '^#\|^$' $HOSTFILE | awk '{print $1}' | xargs)
 hostlen=$(cat $HOSTFILE | wc -l )
 
 for host in ${hostlist[@]}; do
-    ssh $host "pkill -f '/usr/local/bin/torchrun'" 
+    ssh $host "pkill -f '/opt/conda/envs/py38/bin/torchrun'" 
     echo "$host is killed."
 done
 

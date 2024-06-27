@@ -51,7 +51,7 @@ class DotProductAttention(MegatronModule):
         assert (
             self.config.window_size is None
         ), "Sliding Window Attention is only supported by TEDotProductAttention!"
-
+        print("use DotProductAttention")
         self.layer_number = max(1, layer_number)
         self.attn_mask_type = attn_mask_type
         self.attention_type = attention_type  # unused for now
@@ -99,29 +99,27 @@ class DotProductAttention(MegatronModule):
             query_states.size(2) * query_states.size(3)
         ) #seq_len, batch_size, head_num * head_dim
 
-        query_states = query_states.permute(1, 2, 0, 3)
-        key_states = key_states.permute(1, 2, 0, 3)
-        value_states = value_states.permute(1, 2, 0, 3)
+        query_states = query_states.permute(1, 2, 0, 3).contiguous()
+        key_states = key_states.permute(1, 2, 0, 3).contiguous()
+        value_states = value_states.permute(1, 2, 0, 3).contiguous()
 
         bsz, num_heads, q_len, head_dim = query_states.size()
         # kv_seq_len = key_states.size(2)
-
         with torch.backends.cuda.sdp_kernel(enable_flash=True, enable_math=False):
             attn_output = torch.nn.functional.scaled_dot_product_attention(
                 query_states, # batch_size, head_num , seq_len,  head_size
                 key_states, # batch_size, head_num, seq_len, head_size
                 value_states, #batch_size, head_num, seq_len, head_size
-                attn_mask=attention_mask,# bsz * num_heads, q_len, kv_seq_len
+                attn_mask=~attention_mask,# bsz * num_heads, q_len, kv_seq_len
                 dropout_p=0.0,
                 is_causal=False,
             )
-
         if attn_output.size() != (bsz, num_heads, q_len, head_dim):
             raise ValueError(
                 f"`attn_output` should be of size {(bsz, num_heads, q_len, head_dim)}, but is"
                 f" {attn_output.size()}"
             )
-        attn_output = attn_output.permute(2, 0, 1, 3).reshape(*output_size)
+        attn_output = attn_output.permute(2, 0, 1, 3).reshape(*output_size).contiguous()
         return attn_output
     
     def forward(
@@ -158,6 +156,9 @@ class DotProductAttention(MegatronModule):
 
         
         if self.use_flash_attn:
+            # TODO(optimize mask method)
+            # if attention_mask.dtype == torch.bool:
+            #     attention_mask.mas
             context = self._flash_attn_impl(query, key, value, attention_mask)
             # new_context_shape = context.size()[:-2] + (self.hidden_size_per_partition,)
             # context = context.view(*new_context_shape)
@@ -252,10 +253,4 @@ class DotProductAttention(MegatronModule):
         return context
 
 import megatron.core.transformer.dot_product_attention
-# import sys
-# for k in sys.modules:
-#     if k.startswith('megatron.core.transformer.dot_product_attention'):
-#         for target in ['DotProductAttention']:
-#             if getattr(sys.modules[k], target, None):
-#                 setattr(sys.modules[k], target, DotProductAttention)
 megatron.core.transformer.dot_product_attention.DotProductAttention = DotProductAttention

@@ -28,8 +28,28 @@ def throughput_calculator(args, elapsed_time_per_iter, consumed_tokens_per_iter)
     # # logger.info("Throughput(token per chip per second): " + str(chip_throughput))
     # # logger.info("MFU: " + str(MFU))
     # # logger.info("Throughput(token per TFLOPS): " + str(tflops_throughput))
+    h = args.hidden_size
+    s = args.seq_length
+    N = 12 * args.num_layers * h **2
+    D = 1
 
-    return chip_throughput
+    attn_matmul = 2 * N * D
+    attn_sdp = N * D * (s / h)
+    mlp_matmul = 4 * N * D
+    # moe
+    if args.num_experts is None:
+        factor = 1
+    else:
+        factor = args.moe_router_topk
+    activated_dense_flops = attn_matmul + attn_sdp + mlp_matmul * factor
+    if args.num_experts is not None:
+        act_params = N + args.num_layers *(args.num_experts - 1) * 8 * h**2
+        if torch.distributed.get_rank() == 0:
+            print(f"N: {N} Act param: {act_params} Act flops: {activated_dense_flops}")
+    tflops =  chip_throughput *  activated_dense_flops
+    mfu = tflops / 98e12
+
+    return chip_throughput, mfu
 
 def num_floating_point_operations(args, batch_size):
     # Attention projection size.
@@ -244,8 +264,9 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         log_string = f" [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]"
         log_string += ' iteration {:8d}/{:8d} |'.format(
             iteration, args.train_iters)
-        chip_throughput = throughput_calculator(args, elapsed_time_per_iteration, batch_size * args.seq_length)
-        log_string += ' chip_throughput: {:.2f} /s '.format(chip_throughput)
+        chip_throughput, mfu = throughput_calculator(args, elapsed_time_per_iteration, batch_size * args.seq_length)
+        log_string += ' chip_throughput: {:.2f} /s |'.format(chip_throughput)
+        log_string += ' mfu: {:.4f} |'.format(mfu)
         log_string += ' consumed samples: {:12d} |'.format(
             args.consumed_train_samples)
         log_string += ' elapsed time per iteration (ms): {:.1f} |'.format(

@@ -16,12 +16,20 @@ set +u
 export OMP_NUM_THREADS=4
 export MUSA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
 export MUSA_KERNEL_TIMEOUT=3200000
-export NCCL_PROTOS=2
 export ACCELERATOR_BACKEND="musa"
+
+export NCCL_PROTOS=2
+export NCCL_CHECK_POINTERS=0
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240419-musa
+
+MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240521
 export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
-# export MUSA_LAUNCH_BLOCKING=1
+#export MUSA_LAUNCH_BLOCKING=1
+
+# MCCL DEBUG
+# export NCCL_DEBUG_FILE="${MCCL_DUMP_DIR}/debug.%h.%p"
+# export NCCL_DEBUG="TRACE"
+
 
 CHECKPOINT_PATH=$WORK_HOME/checkpoints/$EXPNAME
 mkdir -p $CHECKPOINT_PATH
@@ -66,6 +74,7 @@ MODEL_ARGS=(
     --attention-dropout 0.0 
     --hidden-dropout 0.0 
     --disable-bias-linear 
+    --vocab-size 32000
     --position-embedding-type rope 
     --no-position-embedding 
     --swiglu 
@@ -155,8 +164,10 @@ MOE_ARGS=(
     --moe-token-dispatcher-type alltoall
     --moe-router-load-balancing-type aux_loss
     --moe-router-topk 2
-    --moe-aux-loss-coeff 1e-2
+    --moe-aux-loss-coeff 0
     --moe-z-loss-coeff 1e-3
+    --moe-expert-capacity-factor 4.0
+    #--moe-pad-expert-input-to-capacity
 )
 # if [ -n "${WANDB_API_KEY}" ]; then
 #     EVAL_AND_LOGGING_ARGS+=(

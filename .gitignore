@@ -1,4 +1,8 @@
-# Megatron-LM*
+Megatron-LM*
 exp*
 llama2-test*
-*/output
+output/
+logs/
+checkpoints/
+tboard/
+wandb/

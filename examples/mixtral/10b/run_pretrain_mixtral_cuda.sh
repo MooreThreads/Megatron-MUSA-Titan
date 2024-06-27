@@ -88,6 +88,7 @@ TRAINING_ARGS=(
     --recompute-method block 
     --recompute-num-layers 0 
     --distributed-backend nccl 
+    --transformer-impl local
 )
 
 REGULARIZATION_ARGS=(
@@ -155,6 +156,7 @@ MOE_ARGS=(
     --moe-router-topk 2
     --moe-aux-loss-coeff 1e-2
     --moe-z-loss-coeff 1e-3
+    --moe-expert-capacity-factor 4.0 
 )
 
 # if [ -n "${WANDB_API_KEY}" ]; then

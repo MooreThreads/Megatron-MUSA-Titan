@@ -17,7 +17,6 @@ export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 export OMP_NUM_THREADS=4
 export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
 export NCCL_PROTOS=2
-export ACCELERATOR_BACKEND="cuda"
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240419
 export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
@@ -39,7 +38,7 @@ mkdir -p $WB_PATH
 
 
 export NODE_ADDR=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2;}'|tr -d "addr:"|head -n 1)
-export GPUS_PER_NODE=4
+export GPUS_PER_NODE=8
 export NUM_NODES=$(cat $HOSTFILE | wc -l)
 export MASTER_ADDR=$(head -n1 $HOSTFILE | awk '{print $1;}')
 export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks["'$NODE_ADDR'"];}' $HOSTFILE)
@@ -55,7 +54,7 @@ DISTRIBUTED_ARGS=(
 )
 
 MODEL_ARGS=(
-    --num-layers 2 
+    --num-layers 12 
     --hidden-size 768 
     --num-attention-heads 12 
     --seq-length 512 
@@ -88,6 +87,7 @@ TRAINING_ARGS=(
     --recompute-method block 
     --recompute-num-layers 0 
     --distributed-backend nccl 
+    --transformer-impl local
 )
 
 REGULARIZATION_ARGS=(
@@ -149,12 +149,13 @@ EVAL_AND_LOGGING_ARGS=(
 
 MOE_ARGS=(
     --num-experts 8
-    --expert-model-parallel-size 2
+    --expert-model-parallel-size 4
     --moe-token-dispatcher-type alltoall
     --moe-router-load-balancing-type aux_loss
     --moe-router-topk 2
     --moe-aux-loss-coeff 1e-2
     --moe-z-loss-coeff 1e-3
+    --moe-expert-capacity-factor 4.0 
 )
 
 # if [ -n "${WANDB_API_KEY}" ]; then

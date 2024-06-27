@@ -293,7 +293,7 @@ class _AllToAll(torch.autograd.Function):
             output = input.new_empty(
                 size=[sum(output_split_sizes)] + list(input.size()[1:]),
                 dtype=input.dtype,
-                device="musa",
+                device="cuda",
             )
         # print(f"{torch.distributed.get_rank()} trigger all to all {world_size} output {output.size()} input {input.size()} | {output_split_sizes} {input_split_sizes} \n")
         torch.distributed.all_to_all_single(
@@ -410,11 +410,11 @@ def reduce_scatter_last_dim_to_tensor_parallel_region(input_):
 def setup_tp_group():
     global _TENSOR_MODEL_PARALLEL_GROUP
     global _TENSOR_MODEL_PARALLEL_GLOBAL_RANKS
-    assert WORLD_SIZE == 8, "only trigger tp2dp4 case"
+    assert WORLD_SIZE == 4, "only trigger tp2dp4 case"
     rank_generator = RankGenerator(
         tp=2,
-        ep=1,
-        dp=4,
+        ep=2,
+        dp=2,
         pp=1,
         cp=1,
         order="tp-cp-ep-dp-pp"
@@ -476,30 +476,45 @@ def mock_all2all_with_sp():
     batch_size, seq_len, hidden_size = 2, 512, 768
     tp_size = 2
     
-    repeat_num = 10000
+    repeat_num = 100
     depth = 100
-    for _ in range(repeat_num):
-        hidden_states = torch.randn([seq_len // tp_size * batch_size, hidden_size]).musa()
-        weight = torch.nn.Linear(hidden_size, hidden_size, device="musa")
-        hidden_states = weight(hidden_states)
-        for i in range(depth):
-            # all 2 all
-            print(f"{i} 1 {hidden_states.size()}")
-            hidden_states = all_to_all_sp2hp(hidden_states)
-            print(f"{i} 2 {hidden_states.size()}")
-            hidden_states = all_to_all(get_expert_model_parallel_group(), hidden_states)
-            # all gather base
-            hidden_states = all_gather_last_dim_from_tensor_parallel_region(hidden_states)
-            print(f"{i} 3 {hidden_states.size()}")
-            # reduce scatter base
-            hidden_states = reduce_scatter_last_dim_to_tensor_parallel_region(hidden_states)
-            # all 2 all
-            hidden_states = all_to_all(get_expert_model_parallel_group(), hidden_states)
-            print(f"{i} 4 {hidden_states.size()}")
-            hidden_states = all_to_all_hp2sp(hidden_states)
-            print(f"{i} 5 {hidden_states.size()}")
-        loss = hidden_states.sum()
-        loss.backward()
+    if LOCAL_RANK == 0:
+        input_split_sizes_ = [128, 0]
+        output_split_sizes_ = [128, 128]
+    else:
+        input_split_sizes_ = [0, 128]
+        output_split_sizes_ = [0, 0]
+    hidden_states = torch.randn([0, 5]).to("cuda")   
+    # for i in range(repeat_num):
+    #     output = all_to_all(get_expert_model_parallel_group(), hidden_states, output_split_sizes_,  input_split_sizes_)
+    #     print(f">>>> {LOCAL_RANK} {i} {output.size()} |")
+    for i in range(repeat_num):
+        hidden_states = torch.randn([0, 5]).to("cuda")
+        print(f">>>> {LOCAL_RANK} {i} |","hidden_states ", hidden_states.size())
+        output = all_gather_last_dim_from_tensor_parallel_region(hidden_states)
+        print(f">>>> {LOCAL_RANK} {i} |", "output ", output.size())
+    # for _ in range(repeat_num):
+    #     hidden_states = torch.randn([seq_len // tp_size * batch_size, hidden_size]).musa()
+    #     weight = torch.nn.Linear(hidden_size, hidden_size, device="musa")
+    #     hidden_states = weight(hidden_states)
+    #     for i in range(depth):
+    #         # all 2 all
+    #         print(f"{i} 1 {hidden_states.size()}")
+    #         hidden_states = all_to_all_sp2hp(hidden_states)
+    #         print(f"{i} 2 {hidden_states.size()}")
+    #         hidden_states = all_to_all(get_expert_model_parallel_group(), hidden_states)
+    #         # all gather base
+    #         hidden_states = all_gather_last_dim_from_tensor_parallel_region(hidden_states)
+    #         print(f"{i} 3 {hidden_states.size()}")
+    #         # reduce scatter base
+    #         hidden_states = reduce_scatter_last_dim_to_tensor_parallel_region(hidden_states)
+    #         # all 2 all
+    #         hidden_states = all_to_all(get_expert_model_parallel_group(), hidden_states)
+    #         print(f"{i} 4 {hidden_states.size()}")
+    #         hidden_states = all_to_all_hp2sp(hidden_states)
+    #         print(f"{i} 5 {hidden_states.size()}")
+    #     loss = hidden_states.sum()
+    #     loss.backward()
 
     print("done")
 
