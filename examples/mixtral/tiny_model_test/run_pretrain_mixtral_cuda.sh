@@ -8,9 +8,10 @@ set -u
   DATA_DIR=$5
   TP_SIZE=$6
   PP_SIZE=$7
-  MICRO_BATCH_SIZE=$8
-  GLOBAL_BATCH_SIZE=$9
-  TOKENIZED_MODEL=${10}
+  EP_SIZE=$8
+  MICRO_BATCH_SIZE=$9
+  GLOBAL_BATCH_SIZE=${10}
+  TOKENIZED_MODEL=${11}
 set +u
 
 export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
@@ -18,7 +19,7 @@ export OMP_NUM_THREADS=4
 export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
 export NCCL_PROTOS=2
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240419
+MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240521
 export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
 
 
@@ -149,7 +150,7 @@ EVAL_AND_LOGGING_ARGS=(
 
 MOE_ARGS=(
     --num-experts 8
-    --expert-model-parallel-size 4
+    --expert-model-parallel-size $EP_SIZE
     --moe-token-dispatcher-type alltoall
     --moe-router-load-balancing-type aux_loss
     --moe-router-topk 2

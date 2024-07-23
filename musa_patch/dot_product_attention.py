@@ -92,7 +92,7 @@ class DotProductAttention(MegatronModule):
         )
 
     def _flash_attn_impl(self, query_states, key_states, value_states, attention_mask=None):
-        # args.use_flash_attn
+        # attention_mask useless for now
         output_size = (
             query_states.size(0),
             query_states.size(1),
@@ -110,9 +110,9 @@ class DotProductAttention(MegatronModule):
                 query_states, # batch_size, head_num , seq_len,  head_size
                 key_states, # batch_size, head_num, seq_len, head_size
                 value_states, #batch_size, head_num, seq_len, head_size
-                attn_mask=~attention_mask,# bsz * num_heads, q_len, kv_seq_len
+                attn_mask=None,# bsz * num_heads, q_len, kv_seq_len
                 dropout_p=0.0,
-                is_causal=False,
+                is_causal=True,
             )
         if attn_output.size() != (bsz, num_heads, q_len, head_dim):
             raise ValueError(
@@ -159,6 +159,8 @@ class DotProductAttention(MegatronModule):
             # TODO(optimize mask method)
             # if attention_mask.dtype == torch.bool:
             #     attention_mask.mas
+            assert attn_mask_type == AttnMaskType.causal
+                
             context = self._flash_attn_impl(query, key, value, attention_mask)
             # new_context_shape = context.size()[:-2] + (self.hidden_size_per_partition,)
             # context = context.view(*new_context_shape)

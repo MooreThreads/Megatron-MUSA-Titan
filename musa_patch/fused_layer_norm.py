@@ -1,7 +1,5 @@
 # Copyright (c) 2023, NVIDIA CORPORATION. All rights reserved.
 
-import importlib
-import inspect
 import numbers
 
 import torch
@@ -11,7 +9,6 @@ from torch.nn import init
 from torch.nn.parameter import Parameter
 
 from megatron.core.transformer import TransformerConfig
-from megatron.core.utils import make_viewless_tensor
 
 
 

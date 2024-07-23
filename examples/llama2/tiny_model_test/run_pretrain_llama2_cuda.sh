@@ -15,11 +15,11 @@ set +u
 
 export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 export OMP_NUM_THREADS=4
-export CUDA_VISIBLE_DEVICES='5,6'
+export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
 export ACCELERATOR_BACKEND="cuda"
 export NCCL_PROTOS=2
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-2405
+MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240521
 export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
 
 
@@ -38,12 +38,16 @@ mkdir -p $WB_PATH
 
 
 
-export NODE_ADDR=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2;}'|tr -d "addr:"|head -n 1)
-export GPUS_PER_NODE=2
+# export NODE_ADDR=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2;}'|tr -d "addr:"|head -n 1)
+export GPUS_PER_NODE=8
+export NODE_ADDR="127.0.0.1"
+
 export NUM_NODES=$(cat $HOSTFILE | wc -l)
 export MASTER_ADDR=$(head -n1 $HOSTFILE | awk '{print $1;}')
 #export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks["'$NODE_ADDR'"];}' $HOSTFILE)
-export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks[$NODE_ADDR];}' $HOSTFILE)
+# export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks[$NODE_ADDR];}' $HOSTFILE)
+export NODE_RANK=0
+
 export MASTER_PORT=12355
 
 
@@ -56,11 +60,11 @@ DISTRIBUTED_ARGS=(
 )
 
 MODEL_ARGS=(
-    --num-layers 12 
-    --hidden-size 768 
-    --num-attention-heads 12 
-    --seq-length 512 
-    --max-position-embeddings 512 
+    --num-layers 3 
+    --hidden-size 4096 
+    --num-attention-heads 32 
+    --seq-length 4096 
+    --max-position-embeddings 4096 
     --norm-epsilon 1e-5 
     --init-method-std 0.01 
     --attention-dropout 0.0 
@@ -117,7 +121,7 @@ MODEL_PARALLEL_ARGS=(
 )
 
 MIXED_PRECISION_ARGS=(
-    --fp16 
+    --bf16 
     --attention-softmax-in-fp32 
     --no-masked-softmax-fusion 
     --accumulate-allreduce-grads-in-fp32
@@ -141,8 +145,8 @@ DATA_ARGS="
 
 EVAL_AND_LOGGING_ARGS=(
     --log-interval 1
-    --save-interval 2000
-    --eval-interval 1000 
+    --save-interval 10000000
+    --eval-interval 100000 
     --save $CHECKPOINT_PATH 
     --load $CHECKPOINT_PATH 
     --eval-iters 0

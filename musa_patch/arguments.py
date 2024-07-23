@@ -20,6 +20,9 @@ def core_transformer_config_from_args(args, config_class=None):
     kw_args['layernorm_epsilon'] = args.norm_epsilon
     kw_args['deallocate_pipeline_outputs'] = True
     kw_args['pipeline_dtype'] = args.params_dtype
+    # FIXME(临时补丁)
+    if kw_args['moe_token_drop_policy'] and kw_args['moe_token_drop_policy'] == "probs":
+        kw_args['moe_token_drop_policy'] = "prob"
     # FIXME(for musa)
     kw_args['batch_p2p_comm'] = False
     kw_args['num_moe_experts'] = args.num_experts

@@ -8,9 +8,10 @@ set -u
   DATA_DIR=$5
   TP_SIZE=$6
   PP_SIZE=$7
-  MICRO_BATCH_SIZE=$8
-  GLOBAL_BATCH_SIZE=$9
-  TOKENIZED_MODEL=${10}
+  EP_SIZE=$8
+  MICRO_BATCH_SIZE=$9
+  GLOBAL_BATCH_SIZE=${10}
+  TOKENIZED_MODEL=${11}
 set +u
 
 export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
@@ -19,7 +20,7 @@ export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
 export NCCL_PROTOS=2
 export ACCELERATOR_BACKEND="cuda"
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240419
+MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240521
 export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
 
 
@@ -55,7 +56,7 @@ DISTRIBUTED_ARGS=(
 )
 
 MODEL_ARGS=(
-    --num-layers 32 
+    --num-layers 5 # 32
     --hidden-size 2048 
     --num-attention-heads 16 
     --seq-length 4096 
@@ -140,7 +141,7 @@ DATA_ARGS="
 
 EVAL_AND_LOGGING_ARGS=(
     --log-interval 1
-    --save-interval 2000
+    --save-interval 10000000
     --eval-interval 1000 
     --save $CHECKPOINT_PATH 
     --load $CHECKPOINT_PATH 
@@ -150,7 +151,7 @@ EVAL_AND_LOGGING_ARGS=(
 
 MOE_ARGS=(
     --num-experts 8
-    --expert-model-parallel-size 2
+    --expert-model-parallel-size $EP_SIZE
     --moe-token-dispatcher-type alltoall
     --moe-router-load-balancing-type aux_loss
     --moe-router-topk 2
@@ -177,5 +178,5 @@ cmd="torchrun ${DISTRIBUTED_ARGS[@]} $WORK_HOME/pretrain_mixtral.py \
         ${MOE_ARGS[@]} \
         ${EVAL_AND_LOGGING_ARGS[@]}
     "
-echo $cmd
+echo $cmdx
 eval $cmd

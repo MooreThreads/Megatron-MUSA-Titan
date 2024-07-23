@@ -9,9 +9,10 @@ set -u
   DATA_DIR=$5
   TP_SIZE=$6
   PP_SIZE=$7
-  MICRO_BATCH_SIZE=$8
-  GLOBAL_BATCH_SIZE=$9
-  TOKENIZED_MODEL=${10}
+  EP_SIZE=$8
+  MICRO_BATCH_SIZE=$9
+  GLOBAL_BATCH_SIZE=${10}
+  TOKENIZED_MODEL=${11}
 set +u
 export OMP_NUM_THREADS=4
 export MUSA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
@@ -160,7 +161,7 @@ EVAL_AND_LOGGING_ARGS=(
 
 MOE_ARGS=(
     --num-experts 8
-    --expert-model-parallel-size 4
+    --expert-model-parallel-size $EP_SIZE
     --moe-token-dispatcher-type alltoall
     --moe-router-load-balancing-type aux_loss
     --moe-router-topk 2

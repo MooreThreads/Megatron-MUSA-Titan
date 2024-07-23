@@ -4,8 +4,9 @@ CURRENT_TIME=$(date "+%Y-%m-%d_%H:%M:%S")
 echo $CURRENT_TIME
 mkdir -p ./output/$CURRENT_TIME
 
-TP_SIZE=1
-PP_SIZE=2
+TP_SIZE=2
+PP_SIZE=1
+EP_SIZE=4
 WORLD_SIZE=8
 MICRO_BATCH_SIZE=2
 NUM_MICROBATCHES=2
@@ -22,12 +23,12 @@ set -u
   HOSTFILE=./hostfile
   LOG_FILE=./output/$CURRENT_TIME/$EXPNAME.log
   TOKENIZED_MODEL=./llama_config/tokenizer.model
-  SCRIPT_FILE=./tiny_model_test/run_pretrain_mixtral_cuda.sh
+  SCRIPT_FILE=./10b/run_pretrain_mixtral_cuda.sh
 set +u
 
 cmd="bash -c 'cd $WORK_HOME; \
      bash $SCRIPT_FILE $WORK_HOME $PATCH_HOME $EXPNAME $HOSTFILE \"$DATA_PATH\" \
-     $TP_SIZE $PP_SIZE \
+     $TP_SIZE $PP_SIZE $EP_SIZE \
      $MICRO_BATCH_SIZE $GLOBAL_BATCH_SIZE $TOKENIZED_MODEL"
 
 COUNT=0
