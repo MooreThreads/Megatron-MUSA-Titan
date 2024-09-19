@@ -9,7 +9,7 @@ from typing import Union
 if os.getenv("ACCELERATOR_BACKEND", "musa") == "musa":
     import musa_patch
 else:
-    import cuda_patch
+    pass
 from megatron.training import get_args
 from megatron.training import print_rank_0
 from megatron.training import get_timers

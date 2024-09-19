@@ -35,24 +35,24 @@ COUNT=0
 hostlist=$(grep -v '^#\|^$' $HOSTFILE | awk '{print $1}' | xargs)
 hostlen=$(cat $HOSTFILE | wc -l )
 
-for host in ${hostlist[@]}; do
-    ssh $host "pkill -f '/usr/local/bin/torchrun'" 
-    echo "$host is killed."
-done
+#for host in ${hostlist[@]}; do
+#    ssh $host "pkill -f '/usr/local/bin/torchrun'" 
+#    echo "$host is killed."
+#done
 
-COUNT=0
-hostlist=$(grep -v '^#\|^$' $HOSTFILE | awk '{print $1}' | xargs)
-for host in ${hostlist[@]}; do
+#COUNT=0
+#hostlist=$(grep -v '^#\|^$' $HOSTFILE | awk '{print $1}' | xargs)
+#for host in ${hostlist[@]}; do
 
-  cmd_ssh=$cmd" > $LOG_FILE.$COUNT.$host 2>&1'"
-  echo $cmd_ssh
-  ssh -f -n $host $cmd_ssh
-  # echo $host, "bash -c 'cd $FlagScale_HOME/megatron; nohup bash $SCRIPT_FILE $PROJ_HOME $EXPNAME $HOSTFILE \"$DATA_PATH\" >> $LOG_FILE.$COUNT.$host 2>&1 &'"
-  # ssh -f -n $host "bash -c 'cd $FlagScale_HOME/megatron; nohup bash $SCRIPT_FILE $PROJ_HOME $EXPNAME $HOSTFILE \"$DATA_PATH\" >> $LOG_FILE.$COUNT.$host 2>&1 &'"
-  ((COUNT++))
-done
+ # cmd_ssh=$cmd" > $LOG_FILE.$COUNT.$host 2>&1'"
+#  echo $cmd_ssh
+#  ssh -f -n $host $cmd_ssh
+#  # echo $host, "bash -c 'cd $FlagScale_HOME/megatron; nohup bash $SCRIPT_FILE $PROJ_HOME $EXPNAME $HOSTFILE \"$DATA_PATH\" >> $LOG_FILE.$COUNT.$host 2>&1 &'"
+#  # ssh -f -n $host "bash -c 'cd $FlagScale_HOME/megatron; nohup bash $SCRIPT_FILE $PROJ_HOME $EXPNAME $HOSTFILE \"$DATA_PATH\" >> $LOG_FILE.$COUNT.$host 2>&1 &'"
+#  ((COUNT++))
+#done
 
-# cmd_ssh=$cmd" > $LOG_FILE.$COUNT.$host 2>&1'"
+cmd_ssh=$cmd" > $LOG_FILE.$COUNT.$host 2>&1'"
 
-# echo $cmd_ssh
-# eval $cmd_ssh
+echo $cmd_ssh
+eval $cmd_ssh

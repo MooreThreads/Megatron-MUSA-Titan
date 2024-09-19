@@ -5,10 +5,10 @@ echo $CURRENT_TIME
 mkdir -p ./output/$CURRENT_TIME
 
 TP_SIZE=2
-PP_SIZE=2
+PP_SIZE=1
 WORLD_SIZE=8
 MICRO_BATCH_SIZE=2
-NUM_MICROBATCHES=2
+NUM_MICROBATCHES=1
 (( DP_SIZE = $WORLD_SIZE / ($TP_SIZE * $PP_SIZE) ))
 echo $DP_SIZE
 (( GLOBAL_BATCH_SIZE = $MICRO_BATCH_SIZE * $NUM_MICROBATCHES * $DP_SIZE ))
@@ -22,7 +22,7 @@ set -u
   HOSTFILE=./hostfile
   LOG_FILE=./output/$CURRENT_TIME/$EXPNAME.log
   TOKENIZED_MODEL=./llama_config/tokenizer.model
-  SCRIPT_FILE=./tiny_model_test/run_pretrain_llama2_cuda.sh
+  SCRIPT_FILE=./7b/run_pretrain_llama2_cuda.sh
 set +u
 
 cmd="bash -c 'cd $WORK_HOME; \

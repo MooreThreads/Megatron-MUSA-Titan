@@ -22,6 +22,11 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240521
 export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
 
+if [ ! -d "${MEGATRON_PATH}/build" ]; then
+    cd "${MEGATRON_PATH}"
+    python setup.py build_ext --inplace
+    cd -
+fi
 
 CHECKPOINT_PATH=$WORK_HOME/checkpoints/$EXPNAME
 mkdir -p $CHECKPOINT_PATH
