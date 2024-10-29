@@ -38,12 +38,14 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
         allreduce_dgrad,
         sequence_parallel,
         grad_output_buffer,
+        wgrad_deferral_limit,
     ):  
         ctx.save_for_backward(input, weight)
         ctx.use_bias = bias is not None
         ctx.gradient_accumulation_fusion = gradient_accumulation_fusion
         ctx.allreduce_dgrad = allreduce_dgrad
         ctx.sequence_parallel = sequence_parallel
+        ctx.wgrad_deferral_limit = wgrad_deferral_limit
         ctx.grad_output_buffer = grad_output_buffer
 
         if sequence_parallel:
@@ -70,11 +72,17 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
         input, weight = ctx.saved_tensors
         use_bias = ctx.use_bias
         grad_output_buffer = ctx.grad_output_buffer
-
+        wgrad_deferral_limit = ctx.wgrad_deferral_limit
+        
         wgrad_compute = True
+        # if grad_output_buffer is not None:
+        #     grad_output_buffer.append(grad_output)
+        #     wgrad_compute = False
+
         if grad_output_buffer is not None:
-            grad_output_buffer.append(grad_output)
-            wgrad_compute = False
+            if wgrad_deferral_limit == 0 or len(grad_output_buffer) < wgrad_deferral_limit:
+                grad_output_buffer.append(grad_output)
+                wgrad_compute = False
 
         if wgrad_compute:
             if ctx.sequence_parallel:
@@ -169,12 +177,11 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
             # handle.wait()
             # Need to return None's as gradient has to flow for all the input arguments
             # provided during forward
-            return sub_grad_input, grad_weight, grad_bias, None, None, None, None
+            return sub_grad_input, grad_weight, grad_bias, None, None, None, None, None
 
         if ctx.allreduce_dgrad:
             handle.wait()
-
-        return grad_input, grad_weight, grad_bias, None, None, None, None
+        return grad_input, grad_weight, grad_bias, None, None, None, None, None
 
 
 import megatron.core.tensor_parallel.layers

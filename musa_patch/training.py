@@ -8,11 +8,12 @@ from megatron.training.global_vars import (
     get_timers,
     get_tensorboard_writer,
     get_wandb_writer,
-    get_one_logger,
-    get_num_microbatches)
+    get_one_logger)
+    # get_num_microbatches
+from megatron.core.num_microbatches_calculator import get_num_microbatches
 from megatron.training.utils import report_memory, print_rank_last
 from megatron.training.theoretical_memory_usage import report_theoretical_memory
-
+from megatron.training import one_logger_utils
 
 
 def throughput_calculator(args, elapsed_time_per_iter, consumed_tokens_per_iter): 
@@ -160,10 +161,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         get_num_microbatches()
 
     # Track app tag & app tag ID
-    if one_logger:
-        job_name = os.environ.get('SLURM_JOB_NAME', None)
-        current_app_tag = f'{job_name}_{batch_size}_{args.world_size}'
-        one_logger.log_app_tag(current_app_tag)
+    one_logger_utils.track_app_tag(batch_size, args.world_size, args.seq_length)
 
     total_iterations = total_loss_dict[advanced_iters_key] + \
                        total_loss_dict[skipped_iters_key]
@@ -178,20 +176,22 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         if wandb_writer:
             wandb_writer.log({'samples vs steps': args.consumed_train_samples},
                              iteration)
-        if args.log_learning_rate_to_tensorboard:
-            writer.add_scalar('learning-rate', learning_rate, iteration)
-            if args.decoupled_lr is not None:
-                writer.add_scalar('decoupled-learning-rate', decoupled_learning_rate, iteration)
-            writer.add_scalar('learning-rate vs samples', learning_rate,
-                              args.consumed_train_samples)
+        writer.add_scalar('learning-rate', learning_rate, iteration)
+        if args.decoupled_lr is not None:
+            writer.add_scalar('decoupled-learning-rate', decoupled_learning_rate, iteration)
+        writer.add_scalar('learning-rate vs samples', learning_rate,
+                          args.consumed_train_samples)
+        if wandb_writer:
+            wandb_writer.log({'learning-rate': learning_rate}, iteration)
+        if args.skipped_train_samples > 0:
+            writer.add_scalar('skipped-train-samples', args.skipped_train_samples, iteration)
             if wandb_writer:
-                wandb_writer.log({'learning-rate': learning_rate}, iteration)
-        if args.log_batch_size_to_tensorboard:
-            writer.add_scalar('batch-size', batch_size, iteration)
-            writer.add_scalar('batch-size vs samples', batch_size,
-                              args.consumed_train_samples)
-            if wandb_writer:
-                wandb_writer.log({'batch-size': batch_size}, iteration)
+                wandb_writer.log({'skipped-train-samples': args.skipped_train_samples}, iteration)
+        writer.add_scalar('batch-size', batch_size, iteration)
+        writer.add_scalar('batch-size vs samples', batch_size,
+                          args.consumed_train_samples)
+        if wandb_writer:
+            wandb_writer.log({'batch-size': batch_size}, iteration)
         for key in loss_dict:
             writer.add_scalar(key , loss_dict[key], iteration)
             writer.add_scalar(key + ' vs samples', loss_dict[key],
@@ -252,8 +252,12 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
     if iteration % args.log_interval == 0:
         elapsed_time = timers('interval-time').elapsed(barrier=True)
         elapsed_time_per_iteration = elapsed_time / total_iterations
+
         throughput = num_floating_point_operations(args, batch_size) / (
             elapsed_time_per_iteration * 10**12 * args.world_size)
+
+        one_logger_utils.track_e2e_metrics(args.log_throughput, throughput)
+
         if args.log_timers_to_tensorboard:
             if writer:
                 writer.add_scalar('iteration-time',
@@ -269,6 +273,9 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         log_string += ' mfu: {:.4f} |'.format(mfu)
         log_string += ' consumed samples: {:12d} |'.format(
             args.consumed_train_samples)
+        if args.skipped_train_samples > 0:
+            log_string += ' skipped samples: {:12d} |'.format(
+                args.skipped_train_samples)
         log_string += ' elapsed time per iteration (ms): {:.1f} |'.format(
             elapsed_time_per_iteration * 1000.0)
         if args.log_throughput:

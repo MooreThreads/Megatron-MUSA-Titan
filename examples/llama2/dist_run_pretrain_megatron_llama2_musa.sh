@@ -5,20 +5,20 @@ echo $CURRENT_TIME
 mkdir -p ./output/$CURRENT_TIME
 
 TP_SIZE=1
-PP_SIZE=2
+PP_SIZE=8
 WORLD_SIZE=8
-MICRO_BATCH_SIZE=2
-NUM_MICROBATCHES=10
+MICRO_BATCH_SIZE=1
+NUM_MICROBATCHES=4
 (( DP_SIZE = $WORLD_SIZE / ($TP_SIZE * $PP_SIZE) ))
 echo $DP_SIZE
 (( GLOBAL_BATCH_SIZE = $MICRO_BATCH_SIZE * $NUM_MICROBATCHES * $DP_SIZE ))
 echo $GLOBAL_BATCH_SIZE
 
 set -u
-  WORK_HOME=${WORKSPACE_ROOT}/megatron-lm-musa-patch/examples/llama2
-  PATCH_HOME=${WORKSPACE_ROOT}/megatron-lm-musa-patch
+  WORK_HOME=/home/dist/bowen/megatron-lm-musa-patch/examples/llama2
+  PATCH_HOME=/home/dist/bowen/megatron-lm-musa-patch
   EXPNAME="tp${TP_SIZE}_pp${PP_SIZE}_dp${DP_SIZE}_mbs${MICRO_BATCH_SIZE}_numbs${NUM_MICROBATCHES}_gbs${GLOBAL_BATCH_SIZE}_gpus${WORLD_SIZE}"
-  DATA_PATH=/home/dist/dataset/oscar
+  DATA_PATH=/home/dist/dataset/pile/pile_wikipedia_demo
   HOSTFILE=./hostfile
   LOG_FILE=./output/$CURRENT_TIME/$EXPNAME.log
   TOKENIZED_MODEL=./llama_config/tokenizer.model
@@ -37,6 +37,7 @@ hostlen=$(cat $HOSTFILE | wc -l )
 for host in ${hostlist[@]}; do
     ssh $host "pkill -f '/opt/conda/envs/py38/bin/torchrun'" 
     echo "$host is killed."
+    sleep 1
 done
 
 COUNT=0

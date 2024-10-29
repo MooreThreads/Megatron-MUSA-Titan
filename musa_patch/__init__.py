@@ -4,16 +4,24 @@ import torch.utils
 import torch.utils.data
 import torch_musa
 
-
 def patch_before_import_megatron():
     # Import fused_layer_norm before transformer_engine
     # 因为local/te的last norm均依赖TENorm
     from . import fused_layer_norm
     # Use a fake transformer_engine to disable the actual transformer_engine
     import sys
-    from . import transformer_engine
-    sys.modules['megatron.core.transformer.custom_layers.transformer_engine'] = transformer_engine
-
+    # from . import transformer_engine
+    # sys.modules['megatron.core.transformer.custom_layers.transformer_engine'] = transformer_engine
+    # import megatron.core.transformer.custom_layers.transformer_engine.
+    # import importlib
+    # transformer_engine = importlib.import_module("transformer_engine")
+    from transformer_engine.pytorch.utils import get_device_compute_capability
+    def _get_device_compute_capability():
+        return (8, 0)
+    get_device_compute_capability = _get_device_compute_capability
+    from packaging.version import Version as PkgVersion
+    from transformer_engine.pytorch.attention import _flash_attn_version
+    _flash_attn_version = PkgVersion("2.5.0")
     # Import other necessary modules to patch
     from . import dot_product_attention
     from . import training
@@ -56,6 +64,9 @@ def patch_after_import_torch():
     torch.Tensor.cuda = torch.Tensor.musa
     torch.cuda.manual_seed = torch.musa.manual_seed
     torch.cuda.Event = torch.musa.Event
+    torch.cuda.Stream = torch.musa.Stream
+    torch.cuda.get_device_properties = torch.musa.get_device_properties
+    # torch.cuda.amp = torch.musa.amp
     # Memory
     torch.cuda.memory_allocated = torch.musa.memory_allocated
     torch.cuda.max_memory_allocated = torch.musa.memory_allocated
@@ -78,6 +89,32 @@ def patch_after_import_torch():
         result = orig_type(*args, **kwargs)
         return result.replace("musa", "cuda")
     torch.Tensor.type = musa_type
+    
+    # 保存原始的torch.zeros函数引用
+    original_zeros = torch.zeros
+    # 重新定义torch.zeros
+    def patched_zeros(*args, **kwargs):
+        if 'device' in kwargs and kwargs['device'] == 'cuda':
+            kwargs['device'] = 'musa'
+        result = original_zeros(*args, **kwargs)
+        return result
+    torch.zeros = patched_zeros
+
+    # 保存原始的torch.empty函数引用
+    original_empty = torch.empty
+    # 重新定义torch.empty
+    def patched_empty(*args, **kwargs):
+        if 'device' in kwargs and kwargs['device'] == 'cuda':
+            kwargs['device'] = 'musa'
+        result = original_empty(*args, **kwargs)
+        return result
+    torch.empty = patched_empty
+
+    # Original tensor class
+    original_is_cuda = torch.Tensor.is_cuda
+    def always_cuda(self):
+        return True
+    torch.Tensor.is_cuda = property(always_cuda)
 
     # 3. Patch for nccl/mccl
     origin_init_process_group = torch.distributed.init_process_group
@@ -93,7 +130,17 @@ def patch_after_import_torch():
     #     return data
     # torch.utils.data._utils.pin_memory.pin_memory = pin_memory
 
-
+    # 4. disable nvtx
+    def _pass_pvtx(*args, **kwargs):
+        return
+    torch.cuda.nvtx.range_push = _pass_pvtx
+    torch.cuda.nvtx.range_pop = _pass_pvtx
+    
+    # 5. disable dynamo
+    import os
+    os.environ["NVTE_TORCH_COMPILE"] = "0"
+    os.environ["TORCHDYNAMO_DISABLE"] = "1"
+    
 def py_patch():
     if sys.version_info >= (3.9, 0):
         return

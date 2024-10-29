@@ -20,7 +20,7 @@ export NCCL_PROTOS=2
 export NCCL_CHECK_POINTERS=0
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 
-MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240521
+MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240928
 export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
 # export MUSA_LAUNCH_BLOCKING=1
 
@@ -32,7 +32,7 @@ fi
 
 CHECKPOINT_PATH=$WORK_HOME/checkpoints/$EXPNAME
 mkdir -p $CHECKPOINT_PATH
-DATA_PATH=$DATA_DIR/oscar_9_text_document
+DATA_PATH=$DATA_DIR
 
 
 LOG_PATH=$WORK_HOME/logs/$EXPNAME
@@ -49,8 +49,8 @@ export NODE_ADDR=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{p
 export GPUS_PER_NODE=8
 export NUM_NODES=$(cat $HOSTFILE | wc -l)
 export MASTER_ADDR=$(head -n1 $HOSTFILE | awk '{print $1;}')
-export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks["'$NODE_ADDR'"];}' $HOSTFILE)
-# export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks[$NODE_ADDR];}' $HOSTFILE)
+# export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks["'$NODE_ADDR'"];}' $HOSTFILE)
+export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks[$NODE_ADDR];}' $HOSTFILE)
 export MASTER_PORT=12389
 
 
@@ -63,7 +63,7 @@ DISTRIBUTED_ARGS=(
 )
 
 MODEL_ARGS=(
-    --num-layers 12
+    --num-layers 8
     --hidden-size 768 
     --num-attention-heads 12 
     --seq-length 4096 
@@ -90,6 +90,8 @@ TRAINING_ARGS=(
     --init-method-std 0.0165 
     --use-mcore-models 
     --no-gradient-accumulation-fusion 
+    --no-bias-dropout-fusion
+    --no-bias-swiglu-fusion
     --use-distributed-optimizer 
     --use-flash-attn 
     --sequence-parallel 
@@ -97,9 +99,9 @@ TRAINING_ARGS=(
     --recompute-method block 
     --recompute-num-layers 0 
     --distributed-backend nccl 
-    --transformer-impl local
+    --transformer-impl transformer_engine
 )
-
+# --transformer-impl local transformer_engine
 REGULARIZATION_ARGS=(
     --weight-decay 0.1 
     --adam-beta1 0.9 

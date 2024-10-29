@@ -27,6 +27,8 @@ def core_transformer_config_from_args(args, config_class=None):
     kw_args['batch_p2p_comm'] = False
     kw_args['num_moe_experts'] = args.num_experts
     kw_args['rotary_interleaved'] = args.rotary_interleaved
+    kw_args['first_pipeline_num_layers']= args.decoder_first_pipeline_num_layers
+    kw_args['last_pipeline_num_layers']= args.decoder_last_pipeline_num_layers
     if args.swiglu:
         kw_args['activation_func'] = F.silu
         kw_args['gated_linear_unit'] = True
@@ -43,7 +45,7 @@ def core_transformer_config_from_args(args, config_class=None):
         kw_args['num_query_groups'] = args.num_query_groups
     else:
         kw_args['num_query_groups'] = None
-
+    kw_args['config_logger_dir'] = args.config_logger_dir
     # Return config.
     return config_class(**kw_args)
 
