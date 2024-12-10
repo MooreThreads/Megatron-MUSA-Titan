@@ -6,3 +6,5 @@ logs/
 checkpoints/
 tboard/
 wandb/
+__pycache__/
+hostfile

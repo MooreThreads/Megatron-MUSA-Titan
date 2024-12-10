@@ -9,18 +9,19 @@ set -u
   TP_SIZE=$6
   PP_SIZE=$7
   MICRO_BATCH_SIZE=$8
-  GLOBAL_BATCH_SIZE=$9
+  GLOBAL_BATCH_SIZE=${9}
   TOKENIZED_MODEL=${10}
 set +u
+
 export OMP_NUM_THREADS=4
 export MUSA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
 export MUSA_KERNEL_TIMEOUT=3200000
 export ACCELERATOR_BACKEND="musa"
-export NCCL_PROTOS=2
-export NCCL_CHECK_POINTERS=0
+export MCCL_PROTOS=2
+export MCCL_CHECK_POINTERS=0
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 
-MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240521
+MEGATRON_PATH=${PATCH_HOME}/../Megatron-LM
 export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
 # export MUSA_LAUNCH_BLOCKING=1
 
@@ -32,7 +33,7 @@ fi
 
 CHECKPOINT_PATH=$WORK_HOME/checkpoints/$EXPNAME
 mkdir -p $CHECKPOINT_PATH
-DATA_PATH=$DATA_DIR/oscar_9_text_document
+DATA_PATH=$DATA_DIR
 
 
 LOG_PATH=$WORK_HOME/logs/$EXPNAME
@@ -51,8 +52,8 @@ export NUM_NODES=$(cat $HOSTFILE | wc -l)
 export MASTER_ADDR=$(head -n1 $HOSTFILE | awk '{print $1;}')
 export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks["'$NODE_ADDR'"];}' $HOSTFILE)
 # export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks[$NODE_ADDR];}' $HOSTFILE)
-export MASTER_PORT=12389
-
+export MASTER_PORT=14388
+# export MUSA_LAUNCH_BLOCKING=1
 
 DISTRIBUTED_ARGS=(
     --nproc_per_node $GPUS_PER_NODE 
@@ -63,20 +64,21 @@ DISTRIBUTED_ARGS=(
 )
 
 MODEL_ARGS=(
-    --num-layers 12
-    --hidden-size 768 
-    --num-attention-heads 12 
+    --num-layers 32
+    --hidden-size 4096 
+    --ffn-hidden-size 14336
+    --num-attention-heads 32 
+    --group-query-attention 
+    --num-query-groups 8
     --seq-length 4096 
     --max-position-embeddings 4096 
     --norm-epsilon 1e-5 
-    --init-method-std 0.01 
     --attention-dropout 0.0 
     --hidden-dropout 0.0 
     --disable-bias-linear 
     --position-embedding-type rope 
     --no-position-embedding 
     --swiglu 
-    --vocab-size 32000
     --normalization RMSNorm
     --untie-embeddings-and-output-weights
 )
@@ -87,9 +89,11 @@ TRAINING_ARGS=(
     --micro-batch-size $MICRO_BATCH_SIZE 
     --global-batch-size $GLOBAL_BATCH_SIZE  
     --train-samples 24414062 
-    --init-method-std 0.0165 
+    --init-method-std 0.008
     --use-mcore-models 
     --no-gradient-accumulation-fusion 
+    --no-bias-dropout-fusion
+    --no-bias-swiglu-fusion
     --use-distributed-optimizer 
     --use-flash-attn 
     --sequence-parallel 
@@ -97,9 +101,11 @@ TRAINING_ARGS=(
     --recompute-method block 
     --recompute-num-layers 0 
     --distributed-backend nccl 
-    --transformer-impl local
+    --transformer-impl transformer_engine
 )
+    # --no-rope-fusion
 
+# --transformer-impl local transformer_engine
 REGULARIZATION_ARGS=(
     --weight-decay 0.1 
     --adam-beta1 0.9 
@@ -121,7 +127,7 @@ LEARNING_RATE_ARGS=(
 
 MODEL_PARALLEL_ARGS=(
 	--tensor-model-parallel-size $TP_SIZE  
-	--pipeline-model-parallel-size $PP_SIZE 
+	--pipeline-model-parallel-size $PP_SIZE
 )
 
 MIXED_PRECISION_ARGS=(
@@ -133,7 +139,7 @@ MIXED_PRECISION_ARGS=(
 
 DATA_ARGS="
     --data-path $DATA_PATH \
-    --tokenizer-type=SentencePieceTokenizer \
+    --tokenizer-type Llama2Tokenizer \
     --tokenizer-model ${TOKENIZED_MODEL} \
     --split 1
 "

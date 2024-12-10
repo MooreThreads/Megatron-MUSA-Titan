@@ -76,7 +76,6 @@ MODEL_ARGS=(
     --position-embedding-type rope 
     --no-position-embedding 
     --swiglu 
-    --vocab-size 32000
     --normalization RMSNorm
     --untie-embeddings-and-output-weights
 )
