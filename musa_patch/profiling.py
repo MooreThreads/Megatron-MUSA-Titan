@@ -78,8 +78,8 @@ def maybe_enable_profiling(args, global_step):
             profile_memory=profile_memory,
             with_stack=with_stack,
             with_modules=with_modules,
+            start_step=global_step+1,
         ) as torch_profiler:
-            torch_profiler.step_num = global_step
             yield torch_profiler
     else:
         torch_profiler = contextlib.nullcontext()
