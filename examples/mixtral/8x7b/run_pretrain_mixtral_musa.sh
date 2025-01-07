@@ -16,6 +16,7 @@ set -u
   MICRO_BATCH_SIZE=$9
   GLOBAL_BATCH_SIZE=${10}
   TOKENIZED_MODEL=${11}
+  RDZV_ID=${12}
 set +u
 # export ENABLE_PROFILER=1
 # export PROFILER_FREQ=4
@@ -50,8 +51,7 @@ WB_PATH=$WORK_HOME/wandb/$EXPNAME
 mkdir -p $WB_PATH
 
 
-
-export NODE_ADDR=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2;}'|tr -d "addr:"|tail -n 1)
+export NODE_ADDR=$(ip a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2;}'|tr -d "addr:"|head -n1 | cut -d '/' -f1)
 export GPUS_PER_NODE=8
 export NUM_NODES=$(cat $HOSTFILE | wc -l)
 export MASTER_ADDR=$(head -n1 $HOSTFILE | awk '{print $1;}')
@@ -65,7 +65,9 @@ DISTRIBUTED_ARGS=(
     --nnodes $NUM_NODES 
     --node_rank $NODE_RANK 
     --master_addr $MASTER_ADDR 
-    --master_port $MASTER_PORT 
+    --master_port $MASTER_PORT
+    --log_dir $WORK_HOME/output_log/$RDZV_ID/$EXPNAME
+    --redirects 3
 )
 
 MODEL_ARGS=(
@@ -81,7 +83,6 @@ MODEL_ARGS=(
     --attention-dropout 0.0 
     --hidden-dropout 0.0 
     --disable-bias-linear 
-    # --vocab-size=256000
     --ffn-hidden-size 14336  # 5504
     --position-embedding-type rope 
     --no-position-embedding 
@@ -142,7 +143,7 @@ MIXED_PRECISION_ARGS=(
 
 DATA_ARGS="
     --data-path $DATA_PATH \
-    --tokenizer-type=SentencePieceTokenizer \
+    --tokenizer-type SentencePieceTokenizer \
     --tokenizer-model ${TOKENIZED_MODEL} \
     --split 1
 "
@@ -173,9 +174,9 @@ MOE_ARGS=(
     --moe-router-load-balancing-type aux_loss
     --moe-router-topk 2
     --moe-aux-loss-coeff 1e-2
-    --moe-z-loss-coeff 1e-3
-    --moe-expert-capacity-factor 4.0 
 )
+# --moe-z-loss-coeff 1e-3
+# --moe-expert-capacity-factor 4.0 
 # --moe-pad-expert-input-to-capacity
 # if [ -n "${WANDB_API_KEY}" ]; then
 #     EVAL_AND_LOGGING_ARGS+=(

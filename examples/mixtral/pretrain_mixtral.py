@@ -62,7 +62,7 @@ def model_provider(pre_process=True, post_process=True) -> Union[GPTModel, megat
     else:
         config = core_transformer_config_from_args(args)
 
-    if args.use_mcore_models:
+    if not args.use_legacy_models:
         if args.spec is not None:
             transformer_layer_spec = import_module(args.spec)
         else:
