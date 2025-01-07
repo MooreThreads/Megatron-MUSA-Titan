@@ -17,6 +17,9 @@ set -u
   GLOBAL_BATCH_SIZE=${10}
   TOKENIZED_MODEL=${11}
 set +u
+# export ENABLE_PROFILER=1
+# export PROFILER_FREQ=4
+# export MUSA_LAUNCH_BLOCKING=1
 export OMP_NUM_THREADS=4
 export MUSA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
 export MUSA_KERNEL_TIMEOUT=3200000
@@ -24,9 +27,8 @@ export ACCELERATOR_BACKEND="musa"
 export NCCL_PROTOS=2
 export NCCL_CHECK_POINTERS=0
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240521
+MEGATRON_PATH=${PATCH_HOME}/../Megatron-LM
 export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
-# export MUSA_LAUNCH_BLOCKING=1
 
 if [ ! -d "${MEGATRON_PATH}/build" ]; then
     cd "${MEGATRON_PATH}"
@@ -36,7 +38,7 @@ fi
 
 CHECKPOINT_PATH=$WORK_HOME/checkpoints/$EXPNAME
 mkdir -p $CHECKPOINT_PATH
-DATA_PATH=$DATA_DIR/oscar_9_text_document
+DATA_PATH=$DATA_DIR
 
 
 LOG_PATH=$WORK_HOME/logs/$EXPNAME
@@ -49,7 +51,7 @@ mkdir -p $WB_PATH
 
 
 
-export NODE_ADDR=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2;}'|tr -d "addr:"|head -n 1)
+export NODE_ADDR=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2;}'|tr -d "addr:"|tail -n 1)
 export GPUS_PER_NODE=8
 export NUM_NODES=$(cat $HOSTFILE | wc -l)
 export MASTER_ADDR=$(head -n1 $HOSTFILE | awk '{print $1;}')
@@ -67,8 +69,8 @@ DISTRIBUTED_ARGS=(
 )
 
 MODEL_ARGS=(
-    --num-layers 32  # 32 
-    --hidden-size 4096 
+    --num-layers 8  # 32 
+    --hidden-size 4096
     --num-attention-heads 32
     --group-query-attention 
     --num-query-groups 8  

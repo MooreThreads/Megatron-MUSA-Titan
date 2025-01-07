@@ -16,14 +16,14 @@ echo $DP_SIZE
 echo $GLOBAL_BATCH_SIZE
 
 set -u
-  WORK_HOME=${WORKSPACE_ROOT}/megatron-lm-musa-patch/examples/mixtral
-  PATCH_HOME=${WORKSPACE_ROOT}/megatron-lm-musa-patch
+  WORK_HOME="$PWD"
+  PATCH_HOME="$PWD"/../..
   EXPNAME="tp${TP_SIZE}_pp${PP_SIZE}_dp${DP_SIZE}_mbs${MICRO_BATCH_SIZE}_numbs${NUM_MICROBATCHES}_gbs${GLOBAL_BATCH_SIZE}_gpus${WORLD_SIZE}"
-  DATA_PATH=/home/dist/dataset/oscar
+  DATA_PATH=/home/dist/yehua/dataset/llama2_dataset/llama_00_text_document
   HOSTFILE=./hostfile
   LOG_FILE=./output/$CURRENT_TIME/$EXPNAME.log
-  TOKENIZED_MODEL=./llama_config/tokenizer.model
-  SCRIPT_FILE=./10b/run_pretrain_mixtral_musa.sh
+  TOKENIZED_MODEL=/home/dist/yehua/dataset/llama2_dataset/tokenizer.model
+  SCRIPT_FILE=./8x7b/run_pretrain_mixtral_musa.sh
 set +u
 
 cmd="bash -c 'cd $WORK_HOME; \

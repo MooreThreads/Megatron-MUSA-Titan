@@ -314,8 +314,9 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         log_string = f" [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]"
         log_string += ' iteration {:8d}/{:8d} |'.format(
             iteration, args.train_iters)
-        chip_throughput, mfu = throughput_calculator(args, elapsed_time_per_iteration, batch_size * args.seq_length)
-        log_string += ' chip_throughput: {:.2f} /s |'.format(chip_throughput)
+        mfu = throughput / 465
+        tokens_per_gpu_per_second = float(batch_size * args.seq_length) / elapsed_time_per_iteration / args.world_size
+        log_string += ' tokens_per_gpu_per_second: {:.2f} /s |'.format(tokens_per_gpu_per_second)
         log_string += ' mfu: {:.4f} |'.format(mfu)
         log_string += ' consumed samples: {:12d} |'.format(
             args.consumed_train_samples)

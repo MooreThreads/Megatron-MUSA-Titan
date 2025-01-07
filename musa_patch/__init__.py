@@ -3,6 +3,7 @@ import torch
 import torch.utils
 import torch.utils.data
 import torch_musa
+from contextlib import nullcontext
 
 def patch_before_import_megatron():
     # Import fused_layer_norm before transformer_engine
@@ -27,6 +28,9 @@ def patch_before_import_megatron():
     from . import training
     from . import arguments
     from . import linear_with_grad_accumulation_and_async_allreduce
+    from . import rotary_pos_embedding
+    from . import p2p_communication
+    from . import fused_bias_swiglu
 
     # Disable some unsupprted features
     # set_jit_fusion_options
@@ -141,6 +145,11 @@ def patch_after_import_torch():
     os.environ["NVTE_TORCH_COMPILE"] = "0"
     os.environ["TORCHDYNAMO_DISABLE"] = "1"
     
+    def noop(func):
+        return func
+    torch.compile = noop
+    torch.jit.script = noop
+    
 def py_patch():
     if sys.version_info >= (3.9, 0):
         return
@@ -153,8 +162,9 @@ def py_patch():
 # Apply patch
 py_patch()
 
+patch_after_import_torch()
+
 patch_before_import_megatron()
 
-patch_after_import_torch()
 
 

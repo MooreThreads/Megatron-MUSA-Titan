@@ -5,10 +5,10 @@ echo $CURRENT_TIME
 mkdir -p ./output/$CURRENT_TIME
 
 TP_SIZE=1
-PP_SIZE=4
+PP_SIZE=2
 WORLD_SIZE=8
 MICRO_BATCH_SIZE=1
-NUM_MICROBATCHES=16
+NUM_MICROBATCHES=128
 (( DP_SIZE = $WORLD_SIZE / ($TP_SIZE * $PP_SIZE) ))
 echo $DP_SIZE
 (( GLOBAL_BATCH_SIZE = $MICRO_BATCH_SIZE * $NUM_MICROBATCHES * $DP_SIZE ))
@@ -18,10 +18,10 @@ set -u
   WORK_HOME="$PWD"
   PATCH_HOME="$PWD"/../..
   EXPNAME="tp${TP_SIZE}_pp${PP_SIZE}_dp${DP_SIZE}_mbs${MICRO_BATCH_SIZE}_numbs${NUM_MICROBATCHES}_gbs${GLOBAL_BATCH_SIZE}_gpus${WORLD_SIZE}"
-  DATA_PATH=/home/dist/yehua/dataset/llama2_dataset/llama_00_text_document
+  DATA_PATH=${DATA_ROOT}/llama3/llama3_dataset/dedup-md5-pile-pile-cc_text_document
   HOSTFILE=./hostfile
   LOG_FILE=./output/$CURRENT_TIME/$EXPNAME.log
-  TOKENIZED_MODEL=/home/dist/yehua/dataset/llama2_dataset/tokenizer.model
+  TOKENIZED_MODEL=${DATA_ROOT}/llama3/llama3_tokenizer
   SCRIPT_FILE=./8B/run_pretrain_llama3_musa.sh
   RDZV_ID=$CURRENT_TIME
 set +u

@@ -70,7 +70,8 @@ def maybe_enable_profiling(args, global_step):
         with torch.profiler.profile(
             activities=[
                 torch.profiler.ProfilerActivity.CPU,
-                torch.profiler.ProfilerActivity.CUDA,
+                torch.profiler.ProfilerActivity.MUSA,
+                # torch.profiler.ProfilerActivity.CUDA,
             ],
             schedule=torch.profiler.schedule(wait=wait, warmup=warmup_steps, active=active_steps),
             on_trace_ready=trace_handler,

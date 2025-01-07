@@ -13,8 +13,9 @@ set -u
   TOKENIZED_MODEL=${10}
   RDZV_ID=${11}
 set +u
-export ENABLE_PROFILER=1
-export PROFILER_FREQ=4
+# export ENABLE_PROFILER=1
+# export PROFILER_FREQ=4
+# export MUSA_LAUNCH_BLOCKING=1
 export OMP_NUM_THREADS=4
 export MUSA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
 export MUSA_KERNEL_TIMEOUT=3200000
@@ -25,7 +26,6 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 
 MEGATRON_PATH=${PATCH_HOME}/../Megatron-LM
 export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
-# export MUSA_LAUNCH_BLOCKING=1
 
 if [ ! -d "${MEGATRON_PATH}/build" ]; then
     cd "${MEGATRON_PATH}"
@@ -48,7 +48,7 @@ mkdir -p $WB_PATH
 
 
 
-export NODE_ADDR=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2;}'|tr -d "addr:"|head -n 1)
+export NODE_ADDR=$(ip a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2;}'|tr -d "addr:"|head -n1 | cut -d '/' -f1)
 export GPUS_PER_NODE=8
 export NUM_NODES=$(cat $HOSTFILE | wc -l)
 export MASTER_ADDR=$(head -n1 $HOSTFILE | awk '{print $1;}')
@@ -95,7 +95,6 @@ TRAINING_ARGS=(
     --train-samples 24414062 
     --init-method-std 0.008
     --use-mcore-models 
-    --no-gradient-accumulation-fusion 
     --no-bias-dropout-fusion
     --no-bias-swiglu-fusion
     --use-distributed-optimizer 
@@ -105,10 +104,11 @@ TRAINING_ARGS=(
     --recompute-method block 
     --recompute-num-layers 0 
     --distributed-backend nccl 
-    --transformer-impl transformer_engine
+    --transformer-impl local
 )
-    # --no-rope-fusion
-
+# --no-bias-swiglu-fusion
+# --no-rope-fusion
+# --no-gradient-accumulation-fusion 
 # --transformer-impl local transformer_engine
 REGULARIZATION_ARGS=(
     --weight-decay 0.1 
@@ -132,6 +132,7 @@ LEARNING_RATE_ARGS=(
 MODEL_PARALLEL_ARGS=(
 	--tensor-model-parallel-size $TP_SIZE  
 	--pipeline-model-parallel-size $PP_SIZE
+    --decoder-last-pipeline-num-layers 14
 )
 
 MIXED_PRECISION_ARGS=(
@@ -143,18 +144,10 @@ MIXED_PRECISION_ARGS=(
 
 DATA_ARGS="
     --data-path $DATA_PATH \
-    --tokenizer-type Llama2Tokenizer \
+    --tokenizer-type HuggingFaceTokenizer \
     --tokenizer-model ${TOKENIZED_MODEL} \
     --split 1
 "
-
-# DATA_ARGS=(
-#     --data-path $DATA_PATH 
-#     --vocab-file $VOCAB_FILE 
-#     --merge-file $MERGE_FILE 
-#     --split 949,50,1
-# )
-
 
 
 EVAL_AND_LOGGING_ARGS=(

@@ -99,9 +99,9 @@ class DotProductAttention(MegatronModule):
             query_states.size(2) * query_states.size(3)
         ) #seq_len, batch_size, head_num * head_dim
 
-        query_states = query_states.permute(1, 2, 0, 3).contiguous()
-        key_states = key_states.permute(1, 2, 0, 3).contiguous()
-        value_states = value_states.permute(1, 2, 0, 3).contiguous()
+        query_states = query_states.permute(1, 2, 0, 3)
+        key_states = key_states.permute(1, 2, 0, 3)
+        value_states = value_states.permute(1, 2, 0, 3)
 
         bsz, num_heads, q_len, head_dim = query_states.size()
         # kv_seq_len = key_states.size(2)
