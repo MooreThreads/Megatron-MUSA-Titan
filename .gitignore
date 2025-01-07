@@ -10,3 +10,4 @@ __pycache__/
 hostfile
 profiler_result/
 output_log/
+*.log
