@@ -12,15 +12,21 @@ set -u
   MICRO_BATCH_SIZE=$9
   GLOBAL_BATCH_SIZE=${10}
   TOKENIZED_MODEL=${11}
+  RDZV_ID=${12}
 set +u
 
-export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+# profile parameters
+# export ENABLE_PROFILER=1
+# export PROFILER_FREQ=4
+# export CUDA_LAUNCH_BLOCKING=1
+
 export OMP_NUM_THREADS=4
 export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
-export NCCL_PROTOS=2
 export ACCELERATOR_BACKEND="cuda"
+export NCCL_PROTOS=2
+export NCCL_CHECK_POINTERS=0
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240521
+MEGATRON_PATH=${PATCH_HOME}/../Megatron-LM
 export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
 
 if [ ! -d "${MEGATRON_PATH}/build" ]; then
@@ -31,7 +37,7 @@ fi
 
 CHECKPOINT_PATH=$WORK_HOME/checkpoints/$EXPNAME
 mkdir -p $CHECKPOINT_PATH
-DATA_PATH=$DATA_DIR/oscar_9_text_document
+DATA_PATH=$DATA_DIR
 
 
 LOG_PATH=$WORK_HOME/logs/$EXPNAME
@@ -43,13 +49,13 @@ WB_PATH=$WORK_HOME/wandb/$EXPNAME
 mkdir -p $WB_PATH
 
 
-
 export NODE_ADDR=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2;}'|tr -d "addr:"|head -n 1)
 export GPUS_PER_NODE=8
 export NUM_NODES=$(cat $HOSTFILE | wc -l)
 export MASTER_ADDR=$(head -n1 $HOSTFILE | awk '{print $1;}')
 export NODE_RANK=$(awk '{ranks[$1]=(FNR-1);}END{print ranks["'$NODE_ADDR'"];}' $HOSTFILE)
-export MASTER_PORT=12355
+export MASTER_PORT=12356
+# export CUDA_LAUNCH_BLOCKING=1
 
 
 DISTRIBUTED_ARGS=(
@@ -57,11 +63,13 @@ DISTRIBUTED_ARGS=(
     --nnodes $NUM_NODES 
     --node_rank $NODE_RANK 
     --master_addr $MASTER_ADDR 
-    --master_port $MASTER_PORT 
+    --master_port $MASTER_PORT
+    --log_dir $WORK_HOME/output_log/$RDZV_ID/$EXPNAME
+    --redirects 3
 )
 
 MODEL_ARGS=(
-    --num-layers 32  # 32 
+    --num-layers 8  # 32 
     --hidden-size 4096 
     --num-attention-heads 32
     --group-query-attention 
@@ -74,7 +82,6 @@ MODEL_ARGS=(
     --hidden-dropout 0.0 
     --disable-bias-linear 
     --ffn-hidden-size 14336  # 5504
-
     --position-embedding-type rope 
     --no-position-embedding 
     --swiglu 
@@ -134,7 +141,7 @@ MIXED_PRECISION_ARGS=(
 
 DATA_ARGS="
     --data-path $DATA_PATH \
-    --tokenizer-type=SentencePieceTokenizer \
+    --tokenizer-type SentencePieceTokenizer \
     --tokenizer-model ${TOKENIZED_MODEL} \
     --split 1
 "
@@ -150,8 +157,8 @@ DATA_ARGS="
 
 EVAL_AND_LOGGING_ARGS=(
     --log-interval 1
-    --save-interval 200000
-    --eval-interval 1000 
+    --save-interval 100000 
+    --eval-interval 1 
     --save $CHECKPOINT_PATH 
     --load $CHECKPOINT_PATH 
     --eval-iters 0
@@ -165,10 +172,7 @@ MOE_ARGS=(
     --moe-router-load-balancing-type aux_loss
     --moe-router-topk 2
     --moe-aux-loss-coeff 1e-2
-    --moe-z-loss-coeff 1e-3
-    --moe-expert-capacity-factor 4.0 
 )
-
 # if [ -n "${WANDB_API_KEY}" ]; then
 #     EVAL_AND_LOGGING_ARGS+=(
 #         --wandb-project ${WANDB_PROJECT:-"Mixtral-Finetuning"}
