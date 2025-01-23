@@ -49,10 +49,10 @@ def maybe_enable_profiling(args, global_step):
             curr_trace_dir = os.path.join(save_dir, curr_trace_dir_name)
             if not os.path.exists(curr_trace_dir):
                 os.makedirs(curr_trace_dir, exist_ok=True)
-
-            print(f"Dumping profiler traces at step {prof.step_num}")
+            curr_trace_path = os.path.join(curr_trace_dir, f"rank{rank}.{int(time.time()*1000)}.pt.trace.json")
+            print(f"Dumping profiler traces at step {prof.step_num} to {curr_trace_path}")
             begin = time.monotonic()
-            prof.export_chrome_trace(f"{curr_trace_dir}/rank{rank}_trace.json")
+            prof.export_chrome_trace(curr_trace_path)
             print(
                 f"Finished dumping profiler traces in {time.monotonic() - begin:.2f} seconds"
             )

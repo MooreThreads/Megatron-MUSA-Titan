@@ -5,6 +5,7 @@ import os
 import sys
 import time
 import torch
+import torch.distributed
 from megatron.core import mpu
 from megatron.core.transformer.moe.moe_utils import track_moe_metrics
 from megatron.training.global_vars import (
@@ -62,6 +63,12 @@ from .profiling import (
     maybe_enable_profiling,
     maybe_enable_memory_snapshot
 )
+
+try:
+    import mlflow
+except Exception as e:
+    print(f"import mlflow failed {str(e)}")
+
 def throughput_calculator(args, elapsed_time_per_iter, consumed_tokens_per_iter): 
     # training_time = elapsed_time
     system_throughput = float(consumed_tokens_per_iter) / elapsed_time_per_iter
@@ -135,6 +142,9 @@ def num_floating_point_operations(args, batch_size):
         )
     )
 
+def need_mlflow():
+    return os.getenv("MLFLOW_TRACKING_URI", default=None) and \
+            torch.distributed.get_rank() == (torch.distributed.get_world_size() - 1)
 
 def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_rate, iteration,
                  loss_scale, report_memory_flag, skipped_iter,
@@ -342,6 +352,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         else:
             assert decoupled_learning_rate is None
         log_string += ' global batch size: {:5d} |'.format(batch_size)
+        current_loss_dic = dict()
         for key in total_loss_dict:
             if key not in [advanced_iters_key, skipped_iters_key,
                            nan_iters_key]:
@@ -349,6 +360,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
                       float(max(1, total_loss_dict[advanced_iters_key]))
                 if avg > 0.0:
                     log_string += ' {}: {:.6E} |'.format(key, avg)
+                    current_loss_dic[key] = avg
                 total_loss_dict[key] = torch.tensor([0.0], dtype=torch.float, device='cuda')
         log_string += ' loss scale: {:.1f} |'.format(loss_scale)
         if grad_norm is not None:
@@ -373,6 +385,20 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
             report_memory('(after {} iterations)'.format(iteration))
             report_memory_flag = False
         timers.log(timers_to_log, normalizer=args.log_interval)
+
+        # log to mlflow
+        if need_mlflow():
+            mlflow_metrics = current_loss_dic
+            mlflow_metrics['mfu'] = mfu
+            mlflow_metrics["tps"] = tokens_per_gpu_per_second
+            mlflow_metrics['learning-rate'] = learning_rate
+            mlflow_metrics['consumed-samples'] = args.consumed_train_samples
+            mlflow_metrics['batch-size'] = batch_size
+            mlflow_metrics['loss-scale'] = loss_scale
+            mlflow_metrics['iteration-time'] = elapsed_time_per_iteration
+            mlflow_metrics['world-size'] = args.world_size
+
+            mlflow.log_metrics(mlflow_metrics, step=iteration, synchronous=False)
 
     return report_memory_flag
 
@@ -485,7 +511,10 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
         record_shapes=True,
         with_stack=True)
         prof.start()
-        
+    
+    # ms init
+    if need_mlflow(): 
+        mlflow.start_run()
     with maybe_enable_profiling(
         args, global_step=iteration
     ) as torch_profiler:
@@ -741,6 +770,4 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
 import megatron.training
 megatron.training.training.training_log = training_log
 
-enable_profiler = int(os.getenv("ENABLE_PROFILER", 0))
-if enable_profiler:
-    megatron.training.training.train = train
+megatron.training.training.train = train
