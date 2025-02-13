@@ -96,7 +96,7 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
                 handle = torch.distributed._all_gather_base(
                     all_gather_buffer, input, group=get_tensor_model_parallel_group(), async_op=True
                 )
-                # handle.wait()
+                handle.wait()
                 # Here we rely on CUDA_DEVICE_MAX_CONNECTIONS=1 to ensure that the
                 # gather is scheduled before the input gradient computation
                 total_input = all_gather_buffer
@@ -104,8 +104,8 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
                 total_input = input
         grad_input = grad_output.matmul(weight)
 
-        if ctx.sequence_parallel and wgrad_compute:
-            handle.wait()
+        # if ctx.sequence_parallel and wgrad_compute:
+        #     handle.wait()
 
         if wgrad_compute:
             grad_output, total_input = prepare_input_tensors_for_wgrad_compute(
@@ -130,7 +130,7 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
             handle = torch.distributed._reduce_scatter_base(
                 sub_grad_input, grad_input, group=get_tensor_model_parallel_group(), async_op=True
             )
-            # handle.wait()
+            handle.wait()
             # Here we rely on CUDA_DEVICE_MAX_CONNECTIONS=1 to ensure that the
             # reduce scatter is scheduled before the weight gradient computation
 
@@ -174,7 +174,7 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
         grad_bias = grad_output.sum(dim=0) if use_bias else None
 
         if ctx.sequence_parallel:
-            handle.wait()
+            # handle.wait()
             # Need to return None's as gradient has to flow for all the input arguments
             # provided during forward
             return sub_grad_input, grad_weight, grad_bias, None, None, None, None, None
