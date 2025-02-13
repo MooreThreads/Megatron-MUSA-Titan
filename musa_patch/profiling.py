@@ -21,7 +21,7 @@ MEMORY_SNAPSHOT_MAX_ENTRIES = 100000
 @contextlib.contextmanager
 def maybe_enable_profiling(args, global_step):
     # get user defined profiler settings
-    enable_profiling = int(os.getenv("ENABLE_PROFILER", 1))
+    enable_profiling = int(os.getenv("ENABLE_PROFILER", 0))
      # fetch profiler related env
     wait_steps = int(os.getenv("PROFILER_WAIT_STEPS", 0))
     warmup_steps = int(os.getenv("PROFILER_WARMUP_STEPS", 3))
