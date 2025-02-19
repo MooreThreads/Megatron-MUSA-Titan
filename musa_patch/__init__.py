@@ -25,6 +25,7 @@ def patch_before_import_megatron():
     _flash_attn_version = PkgVersion("2.5.0")
     # Import other necessary modules to patch
     from . import dot_product_attention
+    from . import checkpointing
     from . import training
     from . import arguments
     from . import linear_with_grad_accumulation_and_async_allreduce
@@ -93,7 +94,7 @@ def patch_after_import_torch():
         result = orig_type(*args, **kwargs)
         return result.replace("musa", "cuda")
     torch.Tensor.type = musa_type
-    
+
     # 保存原始的torch.zeros函数引用
     original_zeros = torch.zeros
     # 重新定义torch.zeros
@@ -139,17 +140,17 @@ def patch_after_import_torch():
         return
     torch.cuda.nvtx.range_push = _pass_pvtx
     torch.cuda.nvtx.range_pop = _pass_pvtx
-    
+
     # 5. disable dynamo
     import os
     os.environ["NVTE_TORCH_COMPILE"] = "0"
     os.environ["TORCHDYNAMO_DISABLE"] = "1"
-    
+
     def noop(func):
         return func
     torch.compile = noop
     torch.jit.script = noop
-    
+
 def py_patch():
     if sys.version_info >= (3.9, 0):
         return
