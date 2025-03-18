@@ -68,7 +68,7 @@ def model_provider(pre_process=True, post_process=True) -> Union[GPTModel, megat
 
             # record stack information for the trace events
             trace_alloc_record_context=True)
-        
+
     print_rank_0('building GPT model ...')
     # Experimental loading arguments from yaml
     if args.yaml_cfg is not None:

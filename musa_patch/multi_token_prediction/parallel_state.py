@@ -145,7 +145,7 @@ def get_mtp_embedding_ranks(pp_ranks):
 
     We also support the deprecated split rank argument for backwards compatibility."""
     return [pp_ranks[0], pp_ranks[-1]]
-    
+
 
 def initialize_model_parallel(
     tensor_model_parallel_size: int = 1,
@@ -778,7 +778,7 @@ def initialize_model_parallel(
     # put this. If we end up with a more generic initialization of megatron-core
     # we could stick it there
     _set_global_memory_buffer()
-    
+
     for var in list(group_list.keys())[8:]:
         setattr(sys.modules["megatron.core.parallel_state"], var, eval(var))
 
@@ -815,11 +815,9 @@ group_list = {
     name: value for name, value in globals().items()
     if name.startswith("_") and not callable(value)
 }
-                
+
 for k in sys.modules:
     if k.startswith('megatron'):
         for target in ['initialize_model_parallel']:
             if getattr(sys.modules[k], target, None):
                 setattr(sys.modules[k], target, initialize_model_parallel)
-                
-        
