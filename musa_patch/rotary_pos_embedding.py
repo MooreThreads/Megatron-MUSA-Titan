@@ -96,7 +96,7 @@ def apply_rotary_pos_emb_thd(
     ).squeeze(1)
     
 def apply_rotary_pos_emb(
-    t: Tensor, freqs: Tensor, config: TransformerConfig, cu_seqlens: Optional[Tensor] = None
+    t: Tensor, freqs: Tensor, config: TransformerConfig, cu_seqlens: Optional[Tensor] = None, mscale: float = 1.0,
 ):
 
     """

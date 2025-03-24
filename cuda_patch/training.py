@@ -7,6 +7,7 @@ import time
 import torch
 from megatron.core import mpu
 from megatron.core.transformer.moe.moe_utils import track_moe_metrics
+from megatron.core.transformer.moe.router import TopKRouter
 from megatron.training.global_vars import (
     get_args,
     get_timers,
@@ -62,6 +63,14 @@ from .profiling import (
     maybe_enable_profiling,
     maybe_enable_memory_snapshot
 )
+from megatron.training.training import (
+    enable_forward_pre_hook,
+    disable_forward_pre_hook,
+    post_training_step_callbacks,
+    checkpoint_and_decide_exit
+)
+
+
 def throughput_calculator(args, elapsed_time_per_iter, consumed_tokens_per_iter): 
     # training_time = elapsed_time
     system_throughput = float(consumed_tokens_per_iter) / elapsed_time_per_iter
@@ -108,33 +117,98 @@ def num_floating_point_operations(args, batch_size):
     # MoE.
     num_experts_routed_to = 1 if args.num_experts is None else args.moe_router_topk
     gated_linear_multiplier = 3 / 2 if args.swiglu else 1
-    return (
-        12
-        * batch_size
-        * args.seq_length
-        * args.num_layers
-        * args.hidden_size
-        * args.hidden_size
-        * (
-            # Attention.
-            (
-                (
-                    1
-                    + (args.num_query_groups / args.num_attention_heads)
-                    + (args.seq_length / args.hidden_size)
-                ) * query_projection_to_hidden_size_ratio
-            )
-            # MLP.
-            + (
-                (args.ffn_hidden_size / args.hidden_size)
-                * num_experts_routed_to
-                * gated_linear_multiplier
-            )
-            # Logit.
-            + (args.padded_vocab_size / (2 * args.num_layers * args.hidden_size))
-        )
+    shared_expert_ffn_hidden_size = (
+        0
+        if args.moe_shared_expert_intermediate_size is None
+        else args.moe_shared_expert_intermediate_size
     )
+    if not args.multi_latent_attention:
+        return (
+            12
+            * batch_size
+            * args.seq_length
+            * args.num_layers
+            * args.hidden_size
+            * args.hidden_size
+            * (
+                # Attention.
+                (
+                    (
+                        1
+                        + (args.num_query_groups / args.num_attention_heads)
+                        + (args.seq_length / args.hidden_size)
+                    ) * query_projection_to_hidden_size_ratio
+                )
+                # MLP.
+                + (
+                    (args.moe_ffn_hidden_size / args.hidden_size)
+                    * num_experts_routed_to
+                    * gated_linear_multiplier
+                )
+                # Shared Experts.
+                + ((shared_expert_ffn_hidden_size / args.hidden_size) * gated_linear_multiplier)
+                # Logit.
+                + (args.padded_vocab_size / (2 * args.num_layers * args.hidden_size))
+            )
+        )
+    else:
+        if args.q_lora_rank is None:
+            mla_flops_q = args.hidden_size * args.num_attention_heads * (args.qk_head_dim + args.qk_pos_emb_head_dim)
+        else:
+            mla_flops_q = args.hidden_size * args.q_lora_rank +\
+                  args.q_lora_rank * args.num_attention_heads * (args.qk_head_dim + args.qk_pos_emb_head_dim)
+        return (
+            6
+            * batch_size
+            * args.seq_length
+            * args.num_layers
+            * (
+                # MLA Attention.
+                (
+                    (
+                        mla_flops_q
+                        + args.hidden_size * (args.kv_lora_rank + args.qk_pos_emb_head_dim)
+                        + args.num_attention_heads * args.kv_lora_rank * (args.qk_head_dim + args.v_head_dim)
+                        + args.num_attention_heads * args.seq_length * (args.qk_head_dim + args.qk_pos_emb_head_dim)
+                        + args.num_attention_heads * args.seq_length * args.v_head_dim
+                        + args.num_attention_heads * args.v_head_dim * args.hidden_size
+                    ) 
+                )
+                # Router
+                + args.hidden_size * args.num_experts
+                # MLP.
+                + (
+                    2 * args.hidden_size *  args.moe_ffn_hidden_size * num_experts_routed_to
+                    * gated_linear_multiplier
+                )
+                # Shared Experts.
+                + (2 * args.hidden_size * shared_expert_ffn_hidden_size * gated_linear_multiplier)
+                # Logit.
+                + (args.padded_vocab_size * args.hidden_size / args.num_layers)
+            )
+        )
 
+
+def update_e_score_correction_bias(model, micro_batch_num, ):
+    """ 
+    Decrease the bias term by gamma if its corresponding expert is overloaded, 
+    and increase it by gamma if its corresponding expert is underloaded.
+    """
+    for layer in model.modules():
+        if isinstance(layer, TopKRouter):
+            if layer.moe_noaux_gamma:
+                # allreduce tokens_per_expert
+                layer.tokens_per_expert /= micro_batch_num
+                torch.distributed.all_reduce(layer.tokens_per_expert, op=torch.distributed.ReduceOp.SUM)
+                layer.tokens_per_expert /= torch.distributed.get_world_size()
+                with torch.no_grad():
+                    update_value = torch.where(
+                        layer.tokens_per_expert > 1,
+                        -layer.moe_noaux_gamma, 
+                        layer.moe_noaux_gamma
+                    )
+                    layer.e_score_correction_bias += update_value
+                    layer.tokens_per_expert.zero_()  
 
 def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_rate, iteration,
                  loss_scale, report_memory_flag, skipped_iter,
@@ -314,10 +388,9 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         log_string = f" [{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}]"
         log_string += ' iteration {:8d}/{:8d} |'.format(
             iteration, args.train_iters)
-        mfu = throughput / 465
-        tokens_per_gpu_per_second = float(batch_size * args.seq_length) / elapsed_time_per_iteration / args.world_size
-        log_string += ' tokens_per_gpu_per_second: {:.2f} /s |'.format(tokens_per_gpu_per_second)
-        log_string += ' mfu: {:.4f} |'.format(mfu)
+        # chip_throughput, mfu = throughput_calculator(args, elapsed_time_per_iteration, batch_size * args.seq_length)
+        # log_string += ' chip_throughput: {:.2f} /s |'.format(chip_throughput)
+        # log_string += ' mfu: {:.4f} |'.format(mfu)
         log_string += ' consumed samples: {:12d} |'.format(
             args.consumed_train_samples)
         if args.skipped_train_samples > 0:
@@ -378,7 +451,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
 
 def train(forward_step_func, model, optimizer, opt_param_scheduler,
           train_data_iterator, valid_data_iterator,
-          process_non_loss_data_func, config, checkpointing_context):
+          process_non_loss_data_func, config, checkpointing_context, non_loss_data_func):
     """Train the model function."""
     args = get_args()
     timers = get_timers()
@@ -429,8 +502,11 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
     timers('interval-time', log_level=0).start(barrier=True)
     print_datetime('before the start of training step')
     report_memory_flag = True
-    exit = False
-
+    # exit = False
+    pre_hook_enabled = False 
+    should_exit = False
+    exit_code = 0
+    
     if args.manual_gc:
         # Disable the default garbage collector and perform the collection manually.
         # This is to align the timing of garbage collection across ranks.
@@ -449,7 +525,8 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                 mmcnt = mmcnt,
                 enabled = not args.disable_straggler_on_startup,
                 port = args.straggler_ctrlr_port)
-    total_flops = 0.0
+    # total_flops = 0.0
+    num_floating_point_operations_since_last_log_event = 0.0
 
     num_microbatches = get_num_microbatches()
     eval_duration = 0.0
@@ -463,7 +540,7 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
             'train_duration': timers('interval-time').active_time(),
             'eval_duration': eval_duration,
             'eval_iterations': eval_iterations,
-            'total_flops': total_flops,
+            'total_flops': num_floating_point_operations_since_last_log_event,
             'num_floating_point_operations_so_far': num_floating_point_operations_so_far,
             'consumed_train_samples': args.consumed_train_samples,
             'world_size': args.world_size,
@@ -474,6 +551,7 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
         with one_logger.get_context_manager():
             one_logger.store_set('get_e2e_base_metrics', get_e2e_base_metrics)
 
+    prof = None
     if args.profile and torch.distributed.get_rank() in args.profile_ranks and args.use_pytorch_profiler:
         prof = torch.profiler.profile(
         schedule=torch.profiler.schedule(
@@ -485,6 +563,24 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
         record_shapes=True,
         with_stack=True)
         prof.start()
+
+    start_iteration = iteration
+    # Disable forward pre-hook to start training to ensure that errors in checkpoint loading
+    # or random initialization don't propagate to all ranks in first all-gather (which is a
+    # no-op if things work correctly).
+    if args.use_distributed_optimizer and args.overlap_param_gather:
+        disable_forward_pre_hook(model, param_sync=False)
+        # Also remove param_sync_func temporarily so that sync calls made in
+        # `forward_backward_func` are no-ops.
+        param_sync_func = config.param_sync_func
+        config.param_sync_func = None
+        pre_hook_enabled = False
+    # Also, check weight hash across DP replicas to be very pedantic.
+    if args.check_weight_hash_across_dp_replicas_interval is not None:
+        assert check_param_hashes_across_dp_replicas(model, cross_check=True), \
+            "Parameter hashes not matching across DP replicas"
+        torch.distributed.barrier()
+        print_rank_0(f">>> Weight hashes match after {iteration} iterations...")
         
     with maybe_enable_profiling(
         args, global_step=iteration
@@ -497,7 +593,7 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                     torch.cuda.cudart().cudaProfilerStart()
                     torch.autograd.profiler.emit_nvtx(record_shapes=True).__enter__()
 
-            maybe_finalize_async_save(False)
+            maybe_finalize_async_save(blocking=False)
 
             # Update number of microbatches first without consistency check to decide if a
             # checkpoint should be saved. If the number of microbatches is different
@@ -516,13 +612,42 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
             update_num_microbatches(args.consumed_train_samples, consistency_check=True, verbose=True)
 
             args.curr_iteration = iteration
-            loss_dict, skipped_iter, grad_norm, num_zeros_in_grad = \
+            loss_dict, skipped_iter, should_checkpoint, should_exit, exit_code, grad_norm, num_zeros_in_grad = \
                 train_step(forward_step_func,
                         train_data_iterator,
                         model,
                         optimizer,
                         opt_param_scheduler,
                         config)
+            if config.moe_noaux_gamma:
+                update_e_score_correction_bias(model[0], num_microbatches)
+
+            if should_checkpoint:
+                save_checkpoint_and_time(iteration, model, optimizer,
+                                        opt_param_scheduler,
+                                        num_floating_point_operations_so_far,
+                                        checkpointing_context, train_data_iterator=train_data_iterator)
+            if should_exit:
+                break
+
+            # Enable forward pre-hooks after first set of forward and backward passes.
+            # When running in fp16, skip all NaN iterations until steady-state loss scaling value
+            # is reached.
+            if iteration == start_iteration:
+                if skipped_iter:
+                    # Only enable forward pre-hook after a training step has successfully run. Relevant
+                    # for fp16 codepath where first XX iterations are skipped until steady-state loss
+                    # scale value is reached.
+                    start_iteration = iteration + 1
+                else:
+                    # Enable forward pre-hook after training step has successfully run. All subsequent
+                    # forward passes will use the forward pre-hook / `param_sync_func` in
+                    # `forward_backward_func`.
+                    if args.use_distributed_optimizer and args.overlap_param_gather:
+                        enable_forward_pre_hook(model)
+                        config.param_sync_func = param_sync_func
+                        pre_hook_enabled = True
+                    
             if torch_profiler:
                 torch_profiler.step()
             iteration += 1
@@ -537,34 +662,37 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
             else:
                 assert num_skipped_samples_in_batch == 0
             args.skipped_train_samples += num_skipped_samples_in_batch
-            num_fp_ops = num_floating_point_operations(args, batch_size)
-            num_floating_point_operations_so_far += num_fp_ops
-            total_flops += num_fp_ops
+            num_floating_point_operations_in_batch = num_floating_point_operations(args, batch_size)
+            num_floating_point_operations_so_far += num_floating_point_operations_in_batch
+            num_floating_point_operations_since_last_log_event += num_floating_point_operations_in_batch
 
-            # Send heartbeat to FT package and update timeouts.
-            if args.enable_ft_package:
-                ft_client = ft_integration.get_rank_monitor_client(
-                    ft_integration.StateMachineActions.TRAIN_HEARTBEAT)
-                if ft_client is not None:
-                    ft_client.send_heartbeat()
-                    # TODO we are always calculating timeouts in the current implementation
-                    # if we want to rely on manually setup then we need to add additional argument
-                    # to training and pass it here
-                    if ft_integration.can_update_timeouts():
-                        ft_integration.get_rank_monitor_client(
-                            ft_integration.StateMachineActions.UPDATE_TIMEOUT).calculate_and_set_timeouts()
-                        print_rank_0(f'Updated FT timeouts. New values: \
-                            {ft_integration.get_rank_monitor_client().timeouts}')
+            # # Send heartbeat to FT package and update timeouts.
+            # if args.enable_ft_package:
+            #     ft_client = ft_integration.get_rank_monitor_client(
+            #         ft_integration.StateMachineActions.TRAIN_HEARTBEAT)
+            #     if ft_client is not None:
+            #         ft_client.send_heartbeat()
+            #         # TODO we are always calculating timeouts in the current implementation
+            #         # if we want to rely on manually setup then we need to add additional argument
+            #         # to training and pass it here
+            #         if ft_integration.can_update_timeouts():
+            #             ft_integration.get_rank_monitor_client(
+            #                 ft_integration.StateMachineActions.UPDATE_TIMEOUT).calculate_and_set_timeouts()
+            #             print_rank_0(f'Updated FT timeouts. New values: \
+            #                 {ft_integration.get_rank_monitor_client().timeouts}')
 
-            # Bring CPU and GPU back in sync if on right iteration.
-            if (
-                args.train_sync_interval
-                and iteration % args.train_sync_interval == 0
-            ):
-                torch.cuda.synchronize()
+            # # Bring CPU and GPU back in sync if on right iteration.
+            # if (
+            #     args.train_sync_interval
+            #     and iteration % args.train_sync_interval == 0
+            # ):
+            #     torch.cuda.synchronize()
 
             # Logging.
-            loss_scale = optimizer.get_loss_scale().item()
+            if not optimizer.is_stub_optimizer:
+                loss_scale = optimizer.get_loss_scale().item()
+            else:
+                loss_scale = 1.0
             params_norm = None
             if args.log_params_norm:
                 params_norm = calc_params_l2_norm(model)
@@ -583,43 +711,45 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                                             report_memory_flag, skipped_iter,
                                             grad_norm, params_norm, num_zeros_in_grad)
 
-            # StragglerDetector
-            if iteration % args.log_interval == 0 and args.log_straggler:
-                stimer.report(total_flops, args.log_interval)
-                total_flops = 0.0
+            # # StragglerDetector
+            # if iteration % args.log_interval == 0 and args.log_straggler:
+            #     stimer.report(total_flops, args.log_interval)
+            #     total_flops = 0.0
 
-            if args.check_weight_hash_across_dp_replicas_interval is not None and \
-                    iteration % args.check_weight_hash_across_dp_replicas_interval == 0:
-                if args.use_distributed_optimizer and args.overlap_param_gather:
-                    optimizer.disable_pre_hook()
-                assert check_param_hashes_across_dp_replicas(model, cross_check=True), \
-                    "Parameter hashes not matching across DP replicas"
-                torch.distributed.barrier()
-                print_rank_0(f">>> Weight hashes match after {iteration} iterations...")
-                if args.use_distributed_optimizer and args.overlap_param_gather:
-                    optimizer.enable_pre_hook()
+            # if args.check_weight_hash_across_dp_replicas_interval is not None and \
+            #         iteration % args.check_weight_hash_across_dp_replicas_interval == 0:
+            #     if args.use_distributed_optimizer and args.overlap_param_gather:
+            #         optimizer.disable_pre_hook()
+            #     assert check_param_hashes_across_dp_replicas(model, cross_check=True), \
+            #         "Parameter hashes not matching across DP replicas"
+            #     torch.distributed.barrier()
+            #     print_rank_0(f">>> Weight hashes match after {iteration} iterations...")
+            #     if args.use_distributed_optimizer and args.overlap_param_gather:
+            #         optimizer.enable_pre_hook()
 
-            # Autoresume
-            if args.adlr_autoresume and \
-            (iteration % args.adlr_autoresume_interval == 0):
-                check_adlr_autoresume_termination(iteration, model, optimizer,
-                                                opt_param_scheduler)
+            # # Autoresume
+            # if args.adlr_autoresume and \
+            # (iteration % args.adlr_autoresume_interval == 0):
+            #     check_adlr_autoresume_termination(iteration, model, optimizer,
+            #                                     opt_param_scheduler)
 
             # Evaluation
             if args.eval_interval and iteration % args.eval_interval == 0 and \
-            args.do_valid:
+                args.do_valid:
                 timers('interval-time').stop()
                 if args.use_distributed_optimizer and args.overlap_param_gather:
-                    optimizer.disable_pre_hook()
+                    disable_forward_pre_hook(model)
+                    pre_hook_enabled = False
                 if args.manual_gc and args.manual_gc_eval:
                     # Collect all objects.
                     gc.collect()
-                prefix = 'iteration {}'.format(iteration)
+                prefix = f'iteration {iteration}'
                 timers('eval-time', log_level=0).start(barrier=True)
                 evaluate_and_print_results(prefix, forward_step_func,
                                         valid_data_iterator, model,
                                         iteration, process_non_loss_data_func,
-                                        config, False)
+                                        config, verbose=False, write_to_tensorboard=True,
+                                        non_loss_data_func=non_loss_data_func)
                 eval_duration += timers('eval-time').elapsed()
                 eval_iterations += args.eval_iters
                 timers('eval-time').stop()
@@ -629,7 +759,8 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                     # Collect only the objects created and used in evaluation.
                     gc.collect(generation=0)
                 if args.use_distributed_optimizer and args.overlap_param_gather:
-                    optimizer.enable_pre_hook()
+                    enable_forward_pre_hook(model)
+                    pre_hook_enabled = True
                 timers('interval-time', log_level=0).start(barrier=True)
 
 
@@ -637,104 +768,40 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                     ft_integration.get_rank_monitor_client(
                         ft_integration.StateMachineActions.EVAL_HEARTBEAT).send_heartbeat()
 
-            # Checkpointing
-            saved_checkpoint = False
-            if args.exit_signal_handler:
-                signal_handler = get_signal_handler()
-                if any(signal_handler.signals_received()):
-                    if args.save:
-                        save_checkpoint_and_time(iteration, model, optimizer,
-                                                opt_param_scheduler,
-                                                num_floating_point_operations_so_far,
-                                                checkpointing_context, train_data_iterator=train_data_iterator)
-                    print_datetime('exiting program after receiving SIGTERM.')
-                    exit = True
-                    break
+            # Miscellaneous post-training-step functions (e.g., FT heartbeats, GC).
+            # Some of these only happen at specific iterations.
+            post_training_step_callbacks(model, optimizer, opt_param_scheduler, iteration, prof,
+                                        num_floating_point_operations_since_last_log_event)
 
-            if args.save and args.save_interval and \
-            iteration % args.save_interval == 0:
-                save_checkpoint_and_time(iteration, model, optimizer,
-                                        opt_param_scheduler,
-                                        num_floating_point_operations_so_far,
-                                        checkpointing_context, train_data_iterator=train_data_iterator)
-                saved_checkpoint = True
-
-            elif args.save and args.non_persistent_save_interval and \
-            iteration % args.non_persistent_save_interval == 0:
-                timers('interval-time').stop()
-                save_checkpoint_and_time(iteration, model, optimizer,
-                                        opt_param_scheduler,
-                                        num_floating_point_operations_so_far,
-                                        checkpointing_context,
-                                        non_persistent_ckpt=True, train_data_iterator=train_data_iterator)
-                saved_checkpoint = True
-                timers('interval-time', log_level=0).start(barrier=True)
-
-            # Exiting based on duration
-            if args.exit_duration_in_mins:
-                train_time = (time.time() - _TRAIN_START_TIME) / 60.0
-                done_cuda = torch.tensor(
-                    [train_time > args.exit_duration_in_mins],
-                    dtype=torch.int, device='cuda')
-                torch.distributed.all_reduce(
-                    done_cuda, op=torch.distributed.ReduceOp.MAX)
-                done = done_cuda.item()
-                if done:
-                    if args.save and not saved_checkpoint:
-                        save_checkpoint_and_time(iteration, model, optimizer,
-                                                opt_param_scheduler,
-                                                num_floating_point_operations_so_far,
-                                                checkpointing_context, train_data_iterator=train_data_iterator)
-                    print_datetime('exiting program after {} minutes'.format(train_time))
-                    exit = True
-                    break
-
-            # Exiting based on iterations
-            if args.exit_interval and iteration % args.exit_interval == 0:
-                if args.save and not saved_checkpoint:
-                    save_checkpoint_and_time(iteration, model, optimizer,
-                                            opt_param_scheduler,
-                                            num_floating_point_operations_so_far,
-                                            checkpointing_context, train_data_iterator=train_data_iterator)
-                torch.distributed.barrier()
-                print_datetime('exiting program at iteration {}'.format(iteration))
-                exit = True
+            # Checkpoint and decide whether to exit.
+            should_exit = checkpoint_and_decide_exit(model, optimizer, opt_param_scheduler, iteration,
+                                                    num_floating_point_operations_so_far,
+                                                    checkpointing_context, train_data_iterator)
+            if should_exit:
                 break
-
-            if args.profile and \
-                iteration == args.profile_step_end and \
-                torch.distributed.get_rank() in args.profile_ranks:
-                if args.use_pytorch_profiler:
-                    prof.stop()
-                else:
-                    torch.cuda.cudart().cudaProfilerStop()
-
-            if args.manual_gc:
-                if args.manual_gc_interval != 0 and iteration % args.manual_gc_interval == 0:
-                    gc.collect()
 
     one_logger_utils.track_e2e_metrics()
 
-    # Flush TensorBoard, WandB writers and one-logger
+    # Flush TensorBoard, WandB writers and one-logger.
     writer = get_tensorboard_writer()
     if writer:
         writer.flush()
 
     # Close out pre-hooks if using distributed optimizer and overlapped param gather.
-    if args.use_distributed_optimizer and args.overlap_param_gather:
-        optimizer.disable_pre_hook()
+    if pre_hook_enabled:
+        disable_forward_pre_hook(model)
 
     if args.enable_ft_package and ft_integration.get_rank_monitor_client() is not None:
         ft_integration.get_rank_monitor_client().shutdown_workload_monitoring()
 
-    maybe_finalize_async_save(True)
+    maybe_finalize_async_save(blocking=True)
 
     # If any exit conditions (signal handler, duration, iterations) have been reached, exit.
-    if exit:
+    if should_exit:
         wandb_writer = get_wandb_writer()
         if wandb_writer:
             wandb_writer.finish()
-        sys.exit()
+        sys.exit(exit_code)
 
     return iteration, num_floating_point_operations_so_far
 
@@ -742,5 +809,5 @@ import megatron.training
 megatron.training.training.training_log = training_log
 
 enable_profiler = int(os.getenv("ENABLE_PROFILER", 0))
-if enable_profiler:
-    megatron.training.training.train = train
+# if enable_profiler:
+megatron.training.training.train = train

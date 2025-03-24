@@ -27,7 +27,7 @@ def maybe_enable_profiling(args, global_step):
     warmup_steps = int(os.getenv("PROFILER_WARMUP_STEPS", 3))
     active_steps = int(os.getenv("PROFILER_ACTIVE_STEPS", 1))
     repeat_num = int(os.getenv("PROFILER_REPEAT_NUM", 0))
-    profile_freq = int(os.getenv("PROFILER_FREQ", 0))
+    profile_freq = int(os.getenv("PROFILER_FREQ", 1))
     current_time = datetime.now().strftime("%Y.%m.%d-%H:%M:%S")
     save_dir = os.getenv("PROFILER_SAVE_DIR", f"./profiler_result/{current_time}")
     worker_name = os.getenv(

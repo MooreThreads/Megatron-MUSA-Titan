@@ -39,6 +39,10 @@ class DotProductAttention(MegatronModule):
         attn_mask_type: AttnMaskType,
         attention_type: str,
         attention_dropout: float = None,
+        softmax_scale: float = None,
+        k_channels: int = None,
+        v_channels: int = None,
+        cp_comm_type: str = None,
     ):
         super().__init__(config=config)
 
@@ -59,7 +63,7 @@ class DotProductAttention(MegatronModule):
         projection_size = self.config.kv_channels * self.config.num_attention_heads
         from megatron.training import get_args
         args = get_args()
-        self.use_flash_attn = args.use_flash_attn
+        self.use_flash_attn = args.use_flash_attn and not args.multi_latent_attention
 
         # Per attention head and per partition values.
         world_size = parallel_state.get_tensor_model_parallel_world_size()
@@ -129,13 +133,13 @@ class DotProductAttention(MegatronModule):
         value: Tensor,
         attention_mask: Tensor,
         attn_mask_type: AttnMaskType = None,
+        attention_bias: Tensor = None,
         packed_seq_params: PackedSeqParams = None,
     ):
         assert packed_seq_params is None, (
             "Packed sequence is not supported by DotProductAttention."
             "Please use TEDotProductAttention instead."
         )
-
         # ===================================
         # Raw attention scores. [b, n/p, s, s]
         # ===================================
@@ -249,7 +253,7 @@ class DotProductAttention(MegatronModule):
         context = context.permute(2, 0, 1, 3).contiguous()
 
         # [sq, b, np, hn] --> [sq, b, hp]
-        new_context_shape = context.size()[:-2] + (self.hidden_size_per_partition,)
+        new_context_shape = context.size()[:-2] + (-1,)
         context = context.view(*new_context_shape)
 
         return context

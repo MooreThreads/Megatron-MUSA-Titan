@@ -1,3 +1,4 @@
+import os
 import sys
 import torch
 import torch.utils
@@ -7,15 +8,8 @@ from contextlib import nullcontext
 
 def patch_before_import_megatron():
     # Import fused_layer_norm before transformer_engine
-    # 因为local/te的last norm均依赖TENorm
     from . import fused_layer_norm
-    # Use a fake transformer_engine to disable the actual transformer_engine
-    import sys
-    # from . import transformer_engine
-    # sys.modules['megatron.core.transformer.custom_layers.transformer_engine'] = transformer_engine
-    # import megatron.core.transformer.custom_layers.transformer_engine.
-    # import importlib
-    # transformer_engine = importlib.import_module("transformer_engine")
+    
     from transformer_engine.pytorch.utils import get_device_compute_capability
     def _get_device_compute_capability():
         return (8, 0)
@@ -24,17 +18,24 @@ def patch_before_import_megatron():
     from transformer_engine.pytorch.attention import _flash_attn_version
     _flash_attn_version = PkgVersion("2.5.0")
     # Import other necessary modules to patch
+    # from . import transformer_config
     from . import dot_product_attention
     from . import checkpointing
     from . import training
-    from . import arguments
     from . import linear_with_grad_accumulation_and_async_allreduce
     from . import rotary_pos_embedding
     from . import p2p_communication
     from . import fused_bias_swiglu
+    from . import multi_latent_attention
+    from . import moe_utils
+    from . import router
+    from . import arguments
+    from . import transformer_engine
+    from . import random
+    from . import recomupte_variance
+    if os.getenv("USE_MTP", 0):
+        from . import multi_token_prediction
     from . import core_pipeline_parallel_schedules
-
-
     # Disable some unsupprted features
     # set_jit_fusion_options
     def set_jit_fusion_options():
@@ -66,6 +67,7 @@ def patch_after_import_torch():
     torch.cuda.synchronize = torch.musa.synchronize
     torch.cuda.get_rng_state = torch.musa.get_rng_state
     torch.cuda.set_rng_state = torch.musa.set_rng_state
+    torch.cuda.random.get_rng_state = torch.musa.get_rng_state
     torch.cuda.synchronize = torch.musa.synchronize
     torch.cuda.empty_cache = torch.musa.empty_cache
     torch.Tensor.cuda = torch.Tensor.musa
@@ -81,25 +83,28 @@ def patch_after_import_torch():
     torch.cuda.max_memory_reserved = torch.musa.max_memory_reserved
 
     # 2.Patch for torch args related to cuda/musa
-    # 保存原始的torch.tensor函数引用
+    # retain torch.tensor reference
     original_tensor = torch.tensor
-    # 重新定义torch.tensor
+    # redefine torch.tensor
     def patched_tensor(*args, **kwargs):
         if 'device' in kwargs and kwargs['device'] == 'cuda':
             kwargs['device'] = 'musa'
         result = original_tensor(*args, **kwargs)
         return result
     torch.tensor = patched_tensor
-    # 重新定义torch.Tensor
+
+    # redefine torch.Tensor type
     orig_type = torch.Tensor.type
     def musa_type(*args, **kwargs):
         result = orig_type(*args, **kwargs)
-        return result.replace("musa", "cuda")
+        if isinstance(result, str):
+            result = result.replace("musa", "cuda")
+        return result
     torch.Tensor.type = musa_type
-
-    # 保存原始的torch.zeros函数引用
+    
+    # retain torch.zeros reference
     original_zeros = torch.zeros
-    # 重新定义torch.zeros
+    # redeine torch.zeros
     def patched_zeros(*args, **kwargs):
         if 'device' in kwargs and kwargs['device'] == 'cuda':
             kwargs['device'] = 'musa'
@@ -107,9 +112,9 @@ def patch_after_import_torch():
         return result
     torch.zeros = patched_zeros
 
-    # 保存原始的torch.empty函数引用
+    # retain torch.empty reference
     original_empty = torch.empty
-    # 重新定义torch.empty
+    # redifine torch.empty
     def patched_empty(*args, **kwargs):
         if 'device' in kwargs and kwargs['device'] == 'cuda':
             kwargs['device'] = 'musa'
@@ -152,7 +157,11 @@ def patch_after_import_torch():
         return func
     torch.compile = noop
     torch.jit.script = noop
-
+    
+    def get_device_capability_musa():
+        return [8, 3]
+    torch.cuda.get_device_capability = get_device_capability_musa
+    
 def py_patch():
     if sys.version_info >= (3.9, 0):
         return
