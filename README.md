@@ -73,3 +73,29 @@ cd megatron-lm-musa-patch/examples/llava
 cd megatron-lm-musa-patch/examples/deepseekv3
 
 ```
+In deepseek-v2/v3, the ffn-size in first several dense layer is not the same as moe-ffn-size. So it's need to modify some codes in Megatron to support this situation while not use GroupGEMM.
+#### Modify some codes in Megatron
+
+Megatron-LM/megatron/core/transformer/mlp.py
+
+add in line63:  
+```
+if is_expert:
+    ffn_hidden_size = self.config.moe_ffn_hidden_size
+```
+change in line83:
+```
+            self.config.ffn_hidden_size,
+-->         self.config.ffn_hidden_size if not is_expert else self.config.moe_ffn_hidden_size,
+```
+
+
+Megatron-LM/megatron/core/transformer/moe/experts.py
+
+comment line757-760
+```
+        # assert (
+        #     self.config.moe_ffn_hidden_size == self.config.ffn_hidden_size
+        # ), "Please use GroupedMLP or TEGroupedMLP when moe_ffn_hidden_size is \
+        #         different from ffn_hidden_size"
+```

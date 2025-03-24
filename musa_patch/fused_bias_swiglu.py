@@ -17,3 +17,11 @@ class MusaSwiGLUFunction(torch.autograd.Function):
 
 import megatron.core.fusions.fused_bias_swiglu
 megatron.core.fusions.fused_bias_swiglu.SwiGLUFunction = MusaSwiGLUFunction
+
+# import sys
+# for k in sys.modules:
+#     if k.startswith('megatron.core.fusions.fused_bias_swiglu'):
+#         for target in ['bias_swiglu_impl']:
+#             if getattr(sys.modules[k], target, None):
+#                 print(f'target is {target}')
+#                 setattr(sys.modules[k], target, bias_swiglu_impl)

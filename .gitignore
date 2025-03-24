@@ -11,3 +11,4 @@ hostfile
 profiler_result/
 output_log/
 *.log
+*events.out*
