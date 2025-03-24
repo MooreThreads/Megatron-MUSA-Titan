@@ -27,7 +27,8 @@ export MCCL_PROTOS=2
 export MCCL_ALGOS=1
 export MCCL_BUFFSIZE=41943040
 export MCCL_CHECK_POINTERS=0
-export MCCL_MIN_NCHANNELS=22
+# export MCCL_MIN_NCHANNELS=22
+export MCCL_MAX_NCHANNELS=14
 export MCCL_IB_GID_INDEX=3
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export MUSA_BLOCK_SCHEDULE_MODE=1
@@ -101,7 +102,7 @@ TRAINING_ARGS=(
     --train-samples 24414062 
     --init-method-std  0.006 # 0.02 in HF config, but 0.006 in the paper 
     --use-mcore-models 
-    --no-gradient-accumulation-fusion
+    # --no-gradient-accumulation-fusion
     --no-bias-dropout-fusion
     # --no-bias-swiglu-fusion
     --use-distributed-optimizer 
@@ -113,9 +114,9 @@ TRAINING_ARGS=(
     --distributed-backend nccl
     --multi-latent-attention
     --qk-layernorm
-    --attn-recompute
-    --recompute-variance
-    --mlp-recompute
+    # --attn-recompute
+    # --recompute-variance
+    # --mlp-recompute
 )
 
 MLA_ARGS=(
