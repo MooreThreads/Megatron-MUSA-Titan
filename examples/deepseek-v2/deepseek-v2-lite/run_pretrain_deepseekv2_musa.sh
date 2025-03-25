@@ -71,7 +71,7 @@ DISTRIBUTED_ARGS=(
     --master_addr $MASTER_ADDR 
     --master_port $MASTER_PORT
     --log_dir $WORK_HOME/output_log/$RDZV_ID/$EXPNAME
-    --redirects 3
+    --redirects ${LOG_REDIRECTS_LEVEL:-3}
 )
 
 MODEL_ARGS=(
