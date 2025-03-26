@@ -9,6 +9,8 @@ import os
 import pickle
 import time
 from datetime import datetime
+from pathlib import Path
+import json
 
 import torch
 
@@ -20,6 +22,23 @@ MEMORY_SNAPSHOT_MAX_ENTRIES = 100000
 
 @contextlib.contextmanager
 def maybe_enable_profiling(args, global_step):
+    #add tarce related centext: renll
+    on_demand_profiling = int(os.getenv("KINETO_USE_DAEMON", 0))
+    if on_demand_profiling == 1:
+        training_job_path = os.getenv("TRAINING_JOB_PATH", "/home/dist")
+        rank_pid_relation_dir = os.getenv("RANK_PID_RELATION_DIR", "rank_pid_relation_dir")
+        job_id = os.getenv("MCCFLOW_JOB_ID", "default-job-id")
+        rank_full_path = "{}/{}/{}".format(training_job_path, rank_pid_relation_dir, job_id)
+        Path(rank_full_path).mkdir(parents=True, exist_ok=True)
+
+        rank_pid_relation_map = {
+            "rank": torch.distributed.get_rank(),
+            "world_size": torch.distributed.get_world_size(),
+            "pid": os.getpid(),
+        }
+        rank_file = rank_full_path + "/rank" + str(torch.distributed.get_rank())
+        with open(rank_file, "w+") as f:
+            json.dump(rank_pid_relation_map, f)
     # get user defined profiler settings
     enable_profiling = int(os.getenv("ENABLE_PROFILER", 0))
      # fetch profiler related env
