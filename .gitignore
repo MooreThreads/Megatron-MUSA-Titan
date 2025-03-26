@@ -12,3 +12,19 @@ profiler_result/
 output_log/
 *.log
 *events.out*
+
+# Compiled files
+*.py[cod]
+*$py.class
+
+build/
+downloads/
+eggs/
+.eggs/
+
+# tmp files
+.swp
+.swo
+
+# vscode files
+.vscode/
