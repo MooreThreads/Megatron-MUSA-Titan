@@ -9,7 +9,7 @@ from contextlib import nullcontext
 def patch_before_import_megatron():
     # Import fused_layer_norm before transformer_engine
     from . import fused_layer_norm
-    
+
     from transformer_engine.pytorch.utils import get_device_compute_capability
     def _get_device_compute_capability():
         return (8, 0)
@@ -35,6 +35,10 @@ def patch_before_import_megatron():
     from . import recomupte_variance
     if os.getenv("USE_MTP", 0):
         from . import multi_token_prediction
+    if os.getenv("USE_EPX", 0):
+        from . import fault_tolerance_epx
+        from . import parallel_state
+
     from . import core_pipeline_parallel_schedules
     # Disable some unsupprted features
     # set_jit_fusion_options
@@ -101,7 +105,7 @@ def patch_after_import_torch():
             result = result.replace("musa", "cuda")
         return result
     torch.Tensor.type = musa_type
-    
+
     # retain torch.zeros reference
     original_zeros = torch.zeros
     # redeine torch.zeros
@@ -157,11 +161,11 @@ def patch_after_import_torch():
         return func
     torch.compile = noop
     torch.jit.script = noop
-    
+
     def get_device_capability_musa():
         return [8, 3]
     torch.cuda.get_device_capability = get_device_capability_musa
-    
+
 def py_patch():
     if sys.version_info >= (3.9, 0):
         return
