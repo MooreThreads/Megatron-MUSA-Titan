@@ -19,10 +19,10 @@ set -u
   WORK_HOME="$PWD"
   PATCH_HOME="$PWD"/../..
   EXPNAME="tp${TP_SIZE}_pp${PP_SIZE}_dp${DP_SIZE}_mbs${MICRO_BATCH_SIZE}_numbs${NUM_MICROBATCHES}_gbs${GLOBAL_BATCH_SIZE}_gpus${WORLD_SIZE}"
-  DATA_PATH=/home/dist/yehua/llama2_dataset/llama_00_text_document
+  DATA_PATH=${DATA_PATH:-"/home/dist/yehua/llama2_dataset/llama_00_text_document"}
   HOSTFILE=./hostfile
-  LOG_FILE=./output/$CURRENT_TIME/$EXPNAME.log
-  TOKENIZED_MODEL=/home/dist/yehua/llama2_dataset/tokenizer.model
+  LOG_FILE=$WORK_HOME/output/$CURRENT_TIME/$EXPNAME.log
+  TOKENIZED_MODEL=${TOKENIZED_MODEL:-"/home/dist/yehua/lama2_dataset/tokenizer.model"}
   SCRIPT_FILE=./deepseek-v2-lite/run_pretrain_deepseekv2_musa.sh
   RDZV_ID=$CURRENT_TIME
 set +u
@@ -34,7 +34,18 @@ cmd="bash -c 'cd $WORK_HOME; \
 
 COUNT=0
 hostlist=$(grep -v '^#\|^$' $HOSTFILE | awk '{print $1}' | xargs)
+
+# Check if hostlist is empty
+if [ -z "$hostlist" ]; then
+  echo "Error: hostlist is empty. Please add IP addresses to the hostfile."
+  exit 1
+fi
+
+
 for host in ${hostlist[@]}; do
+  echo "Main log file: $LOG_FILE.$COUNT.$host"
+  echo "Distributed log_dir: $WORK_HOME/output_log/$RDZV_ID/$EXPNAME"
+
   cmd_ssh=$cmd" > $LOG_FILE.$COUNT.$host 2>&1'"
   # cmd_ssh=$cmd" '"
 

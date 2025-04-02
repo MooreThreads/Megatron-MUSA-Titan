@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PROJ_DIR="$(dirname "$SCRIPT_DIR")"
+export PROJ_DIR="$(dirname "$SCRIPT_DIR")"
 DURATION_BETWEEN_TESTS=0.3
-MASTER_ADDR="10.116.36.86"
-HOST_ADDR="10.116.36.86"
+MASTER_ADDR="10.116.36.208"
+HOST_ADDR="10.116.36.208"
 # CCP ADDR and PORT
 EPX_CCP_ADDR="$MASTER_ADDR"
 export EPX_CCP_ADDR
@@ -30,11 +30,15 @@ export GPUS_PER_NODE=8
 # MCCL_DEBUG=TRACE
 # export TORCH_CPP_LOG_LEVEL=INFO
 # export TORCH_DISTRIBUTED_DEBUG="DETAIL"
-# export MEGATRON_LOGGING_LEVEL=0
+# 10:DEBUG, 20:INFO, 30:WARNING, 40:ERROR, 50:FATAL
+export MEGATRON_LOGGING_LEVEL=30
 
-export EPX_PATH=/home/dist/mtn_deepseek_epx/epx
-export PYTHONPATH=${EPX_PATH}/epx-py/python:$PYTHONPATH
+export EPX_PATH=/home/dist/epx
 EPX_STORE_PATH="${EPX_PATH}/epx-py/examples/epx_store.py"
+export PYTHONPATH=${EPX_PATH}/epx-py/python:$PYTHONPATH
+export EPX_LCP_BIN="$EPX_PATH/target/debug/epx-lcp"
+export DATA_PATH="/home/dist/llama2_dataset/llama_00_text_document"
+export TOKENIZED_MODEL="/home/dist/llama2_dataset/tokenizer.model"
 
 if [ "$MASTER_ADDR" = "$HOST_ADDR" ]; then
     python $EPX_STORE_PATH --addr "$HOST_ADDR" &

@@ -63,8 +63,6 @@ export MASTER_ADDR=$(head -n1 $HOSTFILE | awk '{print $1;}')
 export NODE_RANK=$(awk -v node_addr="$NODE_ADDR" '{ranks[$1]=(FNR-1);} END {print ranks[node_addr];}' $HOSTFILE)
 export MASTER_PORT=12356
 
-echo "Distributed log_dir: $WORK_HOME/output_log/$RDZV_ID/$EXPNAME"
-
 DISTRIBUTED_ARGS=(
     --nproc_per_node $GPUS_PER_NODE
     --nnodes $NUM_NODES
@@ -165,7 +163,6 @@ DATA_ARGS=(
     --tokenizer-type NullTokenizer
     # --tokenizer-model ${TOKENIZED_MODEL}
     --split 1
-    #--dataloader-type mtepx  #default single
 )
 
 EVAL_AND_LOGGING_ARGS=(
@@ -236,5 +233,13 @@ cmd="torchrun ${DISTRIBUTED_ARGS[@]} $WORK_HOME/pretrain_deepseekv2.py \
         ${TRANSFORMER_ENGINE_ARGS[@]}
     "
 
-echo $cmd
-$cmd
+# run cmd directly
+if [ $USE_EPX -eq 0 ]; then
+  echo $cmd
+  $cmd
+  exit $?
+fi
+
+# run cmd with fault tolerance
+source "${PROJ_DIR}/deepseek-v2/deepseek-v2-lite/fault_tolerance_function.sh"
+ft_training "$cmd"
