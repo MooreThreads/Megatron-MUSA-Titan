@@ -28,6 +28,11 @@ function ft_training {
     export EPX_SESSION="$(uuiden)"
     fi
 
+    if [ -z "${EPX_LCP_BIN}" ]; then
+        echo "Error: No EPX_LCP_BIN found, please set it in your environment variables."
+        exit 1
+    fi
+
     for i in {1..1000}; do
         if [ ! -f "${TEMP_STATE_PATH}/port_${i}" ]; then
             touch "${TEMP_STATE_PATH}/port_${i}"
@@ -41,7 +46,7 @@ function ft_training {
 
             get_envs ${EPX_LCP_PORT}
 
-            /home/dist/mtn_deepseek_epx/epx/target/debug/epx-lcp \
+            ${EPX_LCP_BIN} \
             --group-ranks "${EPX_GROUP_RANK}" \
             --local-addr "${EPX_LCP_ADDR}" \
             --local-port "${EPX_LCP_PORT}" \

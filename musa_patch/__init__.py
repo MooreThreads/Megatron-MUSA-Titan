@@ -33,9 +33,9 @@ def patch_before_import_megatron():
     from . import transformer_engine
     from . import random
     from . import recomupte_variance
-    if os.getenv("USE_MTP", 0):
+    if int(os.getenv("USE_MTP", 0)):
         from . import multi_token_prediction
-    if os.getenv("USE_EPX", 0):
+    if int(os.getenv("USE_EPX", 0)):
         from . import fault_tolerance_epx
         from . import parallel_state
 

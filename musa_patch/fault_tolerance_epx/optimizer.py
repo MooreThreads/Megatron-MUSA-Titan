@@ -159,7 +159,6 @@ def _get_megatron_optimizer_based_on_param_groups(
         if config.use_distributed_optimizer:
             if int(os.getenv("USE_EPX", 0)):
                 logger.info(f"Wrap DistributedOptimizer with EpxOptimizer")
-                lcp = parallel_state.get_epx_data_parallel_lcp()
                 EpxOptimizer = epx_optimizer_wrapper(lcp)(DistributedOptimizer)
                 optimizer = EpxOptimizer(
                     *optimizer_args,
