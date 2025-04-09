@@ -15,8 +15,7 @@ function ft_training {
     cmd="$1"
 
     SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-    PROJ_DIR="${SCRIPT_DIR}/.."
-    TEMP_STATE_PATH="${PROJ_DIR}/.temp_state"
+    TEMP_STATE_PATH="${SCRIPT_DIR}/../.temp_state"
 
     if [ ! -d "${TEMP_STATE_PATH}" ]; then
         mkdir -p "${TEMP_STATE_PATH}"

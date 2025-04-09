@@ -233,6 +233,8 @@ cmd="torchrun ${DISTRIBUTED_ARGS[@]} $WORK_HOME/pretrain_deepseekv2.py \
         ${TRANSFORMER_ENGINE_ARGS[@]}
     "
 
+USE_EPX=${USE_EPX:-0}
+
 # run cmd directly
 if [ $USE_EPX -eq 0 ]; then
   echo $cmd
@@ -241,5 +243,5 @@ if [ $USE_EPX -eq 0 ]; then
 fi
 
 # run cmd with fault tolerance
-source "${PROJ_DIR}/deepseek-v2/deepseek-v2-lite/fault_tolerance_function.sh"
+source "${PATCH_HOME}/examples/deepseek-v2/deepseek-v2-lite/fault_tolerance_function.sh"
 ft_training "$cmd"
