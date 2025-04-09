@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-export PROJ_DIR="$(dirname "$SCRIPT_DIR")"
 DURATION_BETWEEN_TESTS=0.3
 MASTER_ADDR="10.116.36.208"
 HOST_ADDR="10.116.36.208"
