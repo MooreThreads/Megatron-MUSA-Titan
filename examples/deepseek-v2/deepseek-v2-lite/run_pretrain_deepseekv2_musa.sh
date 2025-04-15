@@ -20,7 +20,7 @@ set +u
 # export MUSA_LAUNCH_BLOCKING=1
 # export PROFILER_PROFILE_MEMORY=1
 export OMP_NUM_THREADS=4
-export MUSA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
+export MUSA_VISIBLE_DEVICES=${MUSA_VISIBLE_DEVICES:-'0,1,2,3,4,5,6,7'}
 export MUSA_KERNEL_TIMEOUT=3200000
 export ACCELERATOR_BACKEND="musa"
 export MCCL_PROTOS=2
@@ -29,6 +29,8 @@ export MCCL_BUFFSIZE=20971520
 export MUSA_BLOCK_SCHEDULE_MODE=1
 export MCCL_IB_GID_INDEX=3
 export MCCL_NET_SHARED_BUFFERS=0
+export MOE_NUM_EXPERTS=${MOE_NUM_EXPERTS:-160}
+export MOE_ROUTER_GROUP_TOPK=${MOE_ROUTER_GROUP_TOPK:-3}
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 # export MUSA_BLOCK_ARBITRATION_MODE=2
@@ -186,12 +188,12 @@ NUM_LAYERS_MINUS_ONE=$((NUM_LAYERS - 1))
 MOE_LAYER_FREQ="([0]*1+[1]*${NUM_LAYERS_MINUS_ONE})*1"
 
 MOE_ARGS=(
-    --num-experts 160
+    --num-experts ${MOE_NUM_EXPERTS}
     --expert-model-parallel-size $EP_SIZE
     --moe-token-dispatcher-type alltoall
     --moe-router-score-function softmax
     --moe-router-num-groups $EP_SIZE
-    --moe-router-group-topk 3
+    --moe-router-group-topk ${MOE_ROUTER_GROUP_TOPK} 
     --moe-router-load-balancing-type seq_aux_loss
     --moe-router-topk 6
     --moe-router-pre-softmax #deepseek use pre-softmax
