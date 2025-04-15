@@ -91,6 +91,11 @@ def patch_after_import_torch():
     torch.cuda.memory._record_memory_history = torch.musa.memory._record_memory_history
     torch.cuda.memory._snapshot = torch.musa.memory._snapshot
 
+    # (yehua.zhang) replace lazy_call to avoid cpu memory leak, 
+    # because failure of cuda init in lazy_call will cause endless operation of emplace back.
+    torch.cuda._lazy_call = torch.musa.core._lazy_init._lazy_call
+    torch.cuda._lazy_init = torch.musa.core._lazy_init._lazy_init
+
     # 2.Patch for torch args related to cuda/musa
     # retain torch.tensor reference
     original_tensor = torch.tensor
