@@ -53,7 +53,8 @@ from megatron.training.utils import (
     check_adlr_autoresume_termination,
     print_rank_0,
     print_rank_last,
-    report_memory
+    report_memory,
+    is_last_rank
 )
 from megatron.training import ft_integration
 from megatron.training.global_vars import (
@@ -362,6 +363,15 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         track_moe_metrics(moe_loss_scale, iteration, writer, wandb_writer, total_loss_dict, args.moe_per_layer_logging)
 
     if iteration % args.log_interval == 0:
+        # HACK(huang.huang): support memory analysis dump
+        if args.record_memory_history:
+            snapshot = torch.cuda.memory._snapshot()
+            from pickle import dump
+            os.makedirs("./memory_snapshot", exist_ok=True)
+            with open(f"./memory_snapshot/iter{iteration}-{args.memory_snapshot_path}", 'wb') as f:
+                dump(snapshot, f)
+        ## HACK(huang.huang)
+
         elapsed_time = timers('interval-time').elapsed(barrier=True)
         elapsed_time_per_iteration = elapsed_time / total_iterations
 
@@ -439,7 +449,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
                 num_microbatches = get_num_microbatches()
                 report_theoretical_memory(args, num_microbatches=num_microbatches, verbose=True)
             report_memory('(after {} iterations)'.format(iteration))
-            report_memory_flag = False
+            # report_memory_flag = False
         timers.log(timers_to_log, normalizer=args.log_interval)
 
         # log to mlflow

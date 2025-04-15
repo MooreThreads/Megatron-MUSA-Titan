@@ -130,6 +130,10 @@ def _add_moe_args(parser):
     # HACK(huang.huang): add attn-recompute, recompute-variance, groupMLP_recompute
     group.add_argument('--attn-recompute', action='store_true',
                        help="use attn recompute")
+    group.add_argument('--mla-rms-recompute', action='store_true',
+                       help="use rms recompute before mla")
+    group.add_argument('--mlp-rms-recompute', action='store_true',
+                       help="use rms recompute before mlp")
     group.add_argument('--recompute-variance', action='store_true',
                        help="use recompute variance")
     group.add_argument('--mlp-recompute', action='store_true',
@@ -205,6 +209,8 @@ def core_transformer_config_from_args(args, config_class=None):
 
     # HACK(huang.huang): add attn-recompute, recompute-variance, mlp_recompute
     config_instance.attn_recompute = args.attn_recompute
+    config_instance.mla_rms_recompute = args.mla_rms_recompute
+    config_instance.mlp_rms_recompute = args.mlp_rms_recompute
     config_instance.recompute_variance = args.recompute_variance
     config_instance.mlp_recompute = args.mlp_recompute
     ## HACK(huang.huang)
