@@ -9,6 +9,7 @@
 import torch
 # from torch import _C
 from torch.cuda import _lazy_call
+from torch.nn import Identity
 # from torch.cuda import device as device_ctx_manager
 from torch.utils.checkpoint import detach_variable
 
@@ -25,9 +26,22 @@ from megatron.core.tensor_parallel.utils import gather_split_1d_tensor, split_te
 from megatron.core.tensor_parallel.random import (CheckpointFunction, get_cuda_rng_tracker,
                                                    _set_cuda_rng_state)
 
-
+    
 # HACK(huang.huang): recompute-variance for [somefunc+fa] and [somefunc+linear], 
 # which can save a forward for fa/linear when backward recompute 
+# 2025.4.2: support list of linear as last_function, and args "mid_function" to support complex situations
+class IdentityTupleOp(torch.nn.Module):
+    """
+    This is a placeholder for IdentityTupleOp(*args) -> args,
+    """
+
+    def __init__(self,):
+        super().__init__()
+
+    def forward(self, *args):
+        return args
+
+
 class CheckpointFunctionVirance(CheckpointFunction):
     """Checkpoint Function
 
@@ -38,10 +52,14 @@ class CheckpointFunctionVirance(CheckpointFunction):
 
     # pylint: disable=missing-function-docstring
     @staticmethod
-    def forward(ctx, run_function, last_function, distribute_saved_activations, *args):
+    def forward(ctx, run_function, last_function, mid_function, distribute_saved_activations, *args):
         """Forward pass."""
+        if not isinstance(last_function, tuple):
+            last_function = (last_function, )
+        mid_function = tuple(IdentityTupleOp() for _ in last_function) if mid_function is None else mid_function       
         ctx.run_function = run_function
         ctx.last_function = last_function 
+        ctx.mid_function = mid_function
         ctx.distribute_saved_activations = distribute_saved_activations
 
         # Copy the rng states.
@@ -51,8 +69,27 @@ class CheckpointFunctionVirance(CheckpointFunction):
 
         with torch.no_grad():
             outputs = run_function(*args)
-            outputs = last_function(outputs)
-
+            outputs = outputs if isinstance(outputs, tuple) else (outputs, )
+            total_outputs = []
+            for i, func in enumerate(last_function):
+                outputs_f = mid_function[i](*outputs)
+                outputs_f = outputs_f if isinstance(outputs_f, tuple) else (outputs_f, )
+                outputs_f = func(*outputs_f)
+                total_outputs.append(outputs_f)
+            if len(total_outputs)==1:
+                #maintain original behavior when only one last_function 
+                total_outputs=total_outputs[0] 
+            else:
+                flat_outputs = []
+                for outputs_f in total_outputs:
+                    if isinstance(outputs_f, tuple):
+                        #Manually remove bias_out which is 'None', and assign 'None' to grad-bias in the corresponding backward direction
+                        outputs_f = tuple([x for x in outputs_f if x is not None])         
+                    flat_outputs.append(outputs_f)   
+                total_outputs = flat_outputs
+                #The reentrant version does not consider tensors in nested structures (e.g., custom objects, lists, dicts, etc) 
+                # as participating in autograd, while the non-reentrant version does
+                total_outputs = sum( [x if isinstance(x, tuple) else (x,) for x in total_outputs ], tuple()) 
         # Divide hidden states across model parallel group and only keep
         # the chunk corresponding to the current rank.
         if distribute_saved_activations:
@@ -62,9 +99,11 @@ class CheckpointFunctionVirance(CheckpointFunction):
             )
 
         # Store everything.
-        ctx.save_for_backward(*args)
+        ctx.inputs = [arg if not torch.is_tensor(arg) else None for arg in args]
+        tensor_inputs = [arg if torch.is_tensor(arg) else None for arg in args]
+        ctx.save_for_backward(*tensor_inputs)
 
-        return outputs
+        return total_outputs
 
     # pylint: disable=missing-function-docstring
     @staticmethod
@@ -75,7 +114,10 @@ class CheckpointFunctionVirance(CheckpointFunction):
                 "Checkpointing is not compatible with .grad(), "
                 "please use .backward() if possible"
             )
-        inputs = ctx.saved_tensors
+        # inputs = ctx.saved_tensors
+        inputs = tuple(
+            t if t is not None else arg for (t, arg) in zip(ctx.saved_tensors, ctx.inputs)
+        )
         if ctx.distribute_saved_activations:
             safely_set_viewless_tensor_data(
                 inputs[0], gather_split_1d_tensor(inputs[0].data).view(ctx.input_0_shape)
@@ -95,24 +137,50 @@ class CheckpointFunctionVirance(CheckpointFunction):
         detached_inputs = detach_variable(inputs)
         with torch.enable_grad():
             outputs = ctx.run_function(*detached_inputs)
+            outputs = outputs if isinstance(outputs, tuple) else (outputs, )
+            total_outputs = []
+            for i,func in enumerate(ctx.mid_function):
+                outputs_f = func(*outputs)
+                if isinstance(outputs_f, torch.Tensor):
+                    outputs_f = [outputs_f,]
+                total_outputs.append(outputs_f)
         # Set the states back to what it was at the start of this function.
         torch.set_rng_state(bwd_cpu_rng_state)
         _set_cuda_rng_state(bwd_cuda_rng_state)
         get_cuda_rng_tracker().set_states(bwd_cuda_rng_state_tracker)
 
 
-        # grad_input, grad_weight, _, _, _, _, _, _ = ctx.last_function.backward_custom(input=outputs, weight=ctx.last_function.weight, out_grad=args[0])
-        grad_input = ctx.last_function.backward_custom(input=outputs, weight=ctx.last_function.weight, grad_output=args[0])
-        outputs = (outputs,)
+        total_grad_input = []
+        for i,func in enumerate(ctx.last_function):
+            if isinstance(func, Identity):
+                grad_input_f = args[i]
+            else:
+                # Assign 'None' to grad_bias to correspond to the operation of removing 'none' during forward
+                grad_out_bias = args[i] if isinstance(args[i], tuple) else (args[i], None)
+                grad_input_f = func.backward_custom(*total_outputs[i], *grad_out_bias)
+            if isinstance(grad_input_f, torch.Tensor):
+                grad_input_f = (grad_input_f,)
+            total_grad_input.append(grad_input_f)
 
-        torch.autograd.backward(outputs, (grad_input, ))
+        total_outputs_with_grad = []
+        total_args_with_grad = []
+        for j, outputs in enumerate(total_outputs):
+            outputs_with_grad = []
+            args_with_grad = []
+            for i, output in enumerate(outputs):
+                if torch.is_tensor(output) and output.requires_grad:
+                    outputs_with_grad.append(output)
+                    args_with_grad.append(total_grad_input[j][i])    
+            total_outputs_with_grad += outputs_with_grad
+            total_args_with_grad += args_with_grad
+        torch.autograd.backward(total_outputs_with_grad, total_args_with_grad)
         grads = tuple(inp.grad if isinstance(inp, torch.Tensor) else inp for inp in detached_inputs)
-        return (None, None, None) + grads
+        return (None, None, None, None) + grads
     
-def checkpointVirance(run_function, last_function, distribute_saved_activations, *args):
+def checkpointVirance(run_function, last_function, distribute_saved_activations, *args, mid_function=None):
     """Checkpoint a model or part of the model.
     This has been directly copied from torch.utils.checkpoint."""
-    return CheckpointFunctionVirance.apply(run_function, last_function, distribute_saved_activations, *args)
+    return CheckpointFunctionVirance.apply(run_function, last_function, mid_function, distribute_saved_activations, *args)
 
 
 

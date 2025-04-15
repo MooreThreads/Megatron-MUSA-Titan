@@ -1,11 +1,18 @@
 
 import torch
 from functools import partial
-from megatron.core import tensor_parallel
+from megatron.core import tensor_parallel, parallel_state
 from megatron.core.models.common.embeddings import apply_rotary_pos_emb
-
 from megatron.core.transformer.multi_latent_attention import MLASelfAttention
-
+try:
+    from megatron.core.extensions.transformer_engine import (
+        te_checkpoint,
+    )
+    from transformer_engine.pytorch.distributed import checkpoint
+    from transformer_engine.pytorch.distributed import checkpointViranceAttention
+    HAVE_TE = True
+except ImportError:
+    HAVE_TE = False
 
 # HACK(huang.huang): recompute-variance for fa: 
 # 1. modify get_query_key_value_tensors for MLASelfAttention, just add a logic to call recompute;
@@ -24,6 +31,8 @@ def MLASelfAttention_forward(
     packed_seq_params=None,
     position_ids=None,
     sequence_len_offset=None,
+    q_compressed=None,
+    kv_combined=None,
 ):
     if not getattr(self.config, 'attn_recompute', None):
         #original forward
@@ -56,16 +65,20 @@ def MLASelfAttention_forward(
     # Get the query, key and value tensors based on the type of attention -
     # self or cross attn.
     # query: [96, 1, 16, 128], key:[96, 1, 16, 128], value:[96, 1, 16, 128]
-    assert (
-        hidden_states.ndim == 3
-    ), f"hidden_states should be 3D, [s, b, n*h], got {hidden_states.ndim}D"
-
-    if self.config.q_lora_rank is not None:
-        q_compressed, _ = self.linear_q_down_proj(hidden_states)
+    if self.config.mla_rms_recompute:
+        assert self.config.attn_recompute, 'mla_rms_recompute only use with attn_recompute now.'
+        pass
     else:
-        q_compressed = hidden_states      
+        assert (
+            hidden_states.ndim == 3
+        ), f"hidden_states should be 3D, [s, b, n*h], got {hidden_states.ndim}D"
 
-    kv_combined, _ = self.linear_kv_down_proj(hidden_states)    
+        if self.config.q_lora_rank is not None:
+            q_compressed, _ = self.linear_q_down_proj(hidden_states)
+        else:
+            q_compressed = hidden_states      
+
+        kv_combined, _ = self.linear_kv_down_proj(hidden_states)    
 
     def _custom_forward_before_attention(
         q_compressed, 
@@ -187,10 +200,33 @@ def MLASelfAttention_forward(
     )
 
     if self.config.attn_recompute == True:
-        if self.config.recompute_variance == True:
-            core_attn_out = tensor_parallel.checkpointViranceAttention(custom_forward_before_attention, self.core_attention, False, q_compressed, kv_combined)
+        if self.config.fp8:
+            if self.config.recompute_variance == True:
+                core_attn_out = checkpointViranceAttention(
+                    custom_forward_before_attention,
+                    self.core_attention,
+                    q_compressed,
+                    kv_combined,
+                    distribute_saved_activations=self.config.distribute_saved_activations,
+                    get_rng_state_tracker=tensor_parallel.random.get_cuda_rng_tracker,
+                    tp_group=parallel_state.get_tensor_model_parallel_group(),
+                )      
+            else:
+                core_attn_out =  checkpoint(
+                    custom_forward_self_attention,
+                    q_compressed,
+                    kv_combined,
+                    distribute_saved_activations=self.config.distribute_saved_activations,
+                    get_rng_state_tracker=tensor_parallel.random.get_cuda_rng_tracker,
+                    tp_group=parallel_state.get_tensor_model_parallel_group(),
+                )    
         else:
-            core_attn_out = tensor_parallel.checkpoint(custom_forward_self_attention, False, q_compressed, kv_combined)
+            if self.config.recompute_variance == True:
+                core_attn_out = tensor_parallel.checkpointViranceAttention(
+                    custom_forward_before_attention, self.core_attention, False, q_compressed, kv_combined)
+            else:
+                core_attn_out = tensor_parallel.checkpoint(
+                    custom_forward_self_attention, False, q_compressed, kv_combined)
     else:
         core_attn_out = custom_forward_self_attention(q_compressed, kv_combined)
     if packed_seq_params is not None:
@@ -209,6 +245,6 @@ def MLASelfAttention_forward(
 # HACK(huang.huang)
 
 
-from transformer_engine.musa.pytorch.utils import add_attr
+from transformer_engine.musa.pytorch.utils import replace_attr
 
-add_attr(MLASelfAttention, "forward", MLASelfAttention_forward)
+replace_attr(MLASelfAttention, "forward", MLASelfAttention_forward)

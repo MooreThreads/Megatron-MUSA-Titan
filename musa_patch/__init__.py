@@ -79,12 +79,17 @@ def patch_after_import_torch():
     torch.cuda.Event = torch.musa.Event
     torch.cuda.Stream = torch.musa.Stream
     torch.cuda.get_device_properties = torch.musa.get_device_properties
+    # add torch.musa.current_devce() to activate torch.musa.default_generators
+    d = torch.musa.current_device()
+    torch.cuda.default_generators = torch.musa.default_generators
     # torch.cuda.amp = torch.musa.amp
     # Memory
     torch.cuda.memory_allocated = torch.musa.memory_allocated
-    torch.cuda.max_memory_allocated = torch.musa.memory_allocated
+    torch.cuda.max_memory_allocated = torch.musa.max_memory_allocated
     torch.cuda.memory_reserved = torch.musa.memory_reserved
     torch.cuda.max_memory_reserved = torch.musa.max_memory_reserved
+    torch.cuda.memory._record_memory_history = torch.musa.memory._record_memory_history
+    torch.cuda.memory._snapshot = torch.musa.memory._snapshot
 
     # 2.Patch for torch args related to cuda/musa
     # retain torch.tensor reference

@@ -63,6 +63,8 @@ export MASTER_ADDR=$(head -n1 $HOSTFILE | awk '{print $1;}')
 export NODE_RANK=$(awk -v node_addr="$NODE_ADDR" '{ranks[$1]=(FNR-1);} END {print ranks[node_addr];}' $HOSTFILE)
 export MASTER_PORT=12356
 
+echo "Distributed log_dir: $WORK_HOME/output_log/$RDZV_ID/$EXPNAME"
+
 DISTRIBUTED_ARGS=(
     --nproc_per_node $GPUS_PER_NODE
     --nnodes $NUM_NODES
@@ -90,7 +92,7 @@ MODEL_ARGS=(
     --swiglu
     --normalization RMSNorm
     --untie-embeddings-and-output-weights
-    --cross-entropy-loss-fusion
+    # --cross-entropy-loss-fusion
 )
 
 # 24414062 1T
@@ -115,7 +117,9 @@ TRAINING_ARGS=(
     --qk-layernorm
     # --attn-recompute
     # --recompute-variance
-    # --mlp-recompute
+    # --mlp-recompute       
+    # --mla-rms-recompute
+    # --mlp-rms-recompute
 )
 
 MLA_ARGS=(
@@ -163,6 +167,7 @@ DATA_ARGS=(
     --tokenizer-type NullTokenizer
     # --tokenizer-model ${TOKENIZED_MODEL}
     --split 1
+    #--dataloader-type mtepx  #default single
 )
 
 EVAL_AND_LOGGING_ARGS=(
