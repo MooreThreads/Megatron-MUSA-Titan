@@ -34,6 +34,7 @@ export MOE_ROUTER_GROUP_TOPK=${MOE_ROUTER_GROUP_TOPK:-3}
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 # export MUSA_BLOCK_ARBITRATION_MODE=2
+export CPU_OPTIMIZER_PRECISION_AWARE_RECONFIG=${CPU_OPTIMIZER_PRECISION_AWARE_RECONFIG:-0}
 
 MEGATRON_PATH=${PATCH_HOME}/../Megatron-LM
 export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
@@ -119,9 +120,13 @@ TRAINING_ARGS=(
     --qk-layernorm
     # --attn-recompute
     # --recompute-variance
-    # --mlp-recompute       
+    # --mlp-recompute
     # --mla-rms-recompute
     # --mlp-rms-recompute
+    # --optimizer-cpu-offload
+    # --optimizer-offload-fraction 1
+    # --use-precision-aware-optimizer # cpu offload must be precision-aware
+    # --overlap-cpu-optimizer-d2h-h2d
 )
 
 MLA_ARGS=(
@@ -193,7 +198,7 @@ MOE_ARGS=(
     --moe-token-dispatcher-type alltoall
     --moe-router-score-function softmax
     --moe-router-num-groups $EP_SIZE
-    --moe-router-group-topk ${MOE_ROUTER_GROUP_TOPK} 
+    --moe-router-group-topk ${MOE_ROUTER_GROUP_TOPK}
     --moe-router-load-balancing-type seq_aux_loss
     --moe-router-topk 6
     --moe-router-pre-softmax #deepseek use pre-softmax
