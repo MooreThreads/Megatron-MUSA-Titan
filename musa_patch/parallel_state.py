@@ -380,7 +380,6 @@ def initialize_model_parallel(
 
         # rank = torch.distributed.get_rank()
         _EPX_DATA_PARALLEL_LCP = Lcp(pg, rank)
-        _EPX_DATA_PARALLEL_LCP.assemble()
 
         logger.info(f"finish initialization _EPX_DATA_PARALLEL_LCP for epx")
 
