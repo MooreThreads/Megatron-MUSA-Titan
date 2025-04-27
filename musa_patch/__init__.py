@@ -34,6 +34,7 @@ def patch_before_import_megatron():
     if int(os.getenv("USE_EPX", 0)):
         from . import fault_tolerance_epx
         from . import parallel_state
+    from . import optimizer
 
     from . import core_pipeline_parallel_schedules
     # Disable some unsupprted features
@@ -87,7 +88,7 @@ def patch_after_import_torch():
     torch.cuda.memory._record_memory_history = torch.musa.memory._record_memory_history
     torch.cuda.memory._snapshot = torch.musa.memory._snapshot
 
-    # (yehua.zhang) replace lazy_call to avoid cpu memory leak, 
+    # (yehua.zhang) replace lazy_call to avoid cpu memory leak,
     # because failure of cuda init in lazy_call will cause endless operation of emplace back.
     torch.cuda._lazy_call = torch.musa.core._lazy_init._lazy_call
     torch.cuda._lazy_init = torch.musa.core._lazy_init._lazy_init
@@ -135,7 +136,10 @@ def patch_after_import_torch():
     # Original tensor class
     original_is_cuda = torch.Tensor.is_cuda
     def always_cuda(self):
-        return True
+        return self.is_musa
+
+    # TODO : this patch may be override by transformer_engine patch
+    # we'd better unify this patch with transformer_engine patch.
     torch.Tensor.is_cuda = property(always_cuda)
 
     # 3. Patch for nccl/mccl

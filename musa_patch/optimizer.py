@@ -1,9 +1,11 @@
 # Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
 import logging
+import warnings
 from typing import Callable, Dict, List, Optional, Tuple
 
 import os
 import torch
+from torch.optim import SGD as CPUSGD
 
 try:
     from transformer_engine.pytorch.optimizers import FusedAdam as Adam
@@ -24,17 +26,18 @@ except ImportError:
         # See https://github.com/NVIDIA/apex/blob/7b73b12361068a10b0f44844534613f252a5ea75/apex/optimizers/fused_adam.py#L16.
         from torch.optim import AdamW as Adam, SGD
 
-from megatron.core.transformer.module import MegatronModule
+from megatron.core.optimizer.cpu_offloading.hybrid_optimizer import HybridDeviceOptimizer
 from megatron.core.distributed.param_and_grad_buffer import _ParamAndGradBuffer
-
+from megatron.core.transformer.module import MegatronModule
 from megatron.core.optimizer.distrib_optimizer import DistributedOptimizer
-from megatron.core.optimizer.optimizer_config import OptimizerConfig
 from megatron.core.optimizer.grad_scaler import ConstantGradScaler, DynamicGradScaler
 from megatron.core.optimizer import (
     Float16OptimizerWithFloat16Params,
     FP32Optimizer,
     MegatronOptimizer,
 )
+from megatron.core.optimizer.optimizer_config import OptimizerConfig
+
 
 logger = logging.getLogger(__name__)
 
@@ -68,12 +71,65 @@ def _get_megatron_optimizer_based_on_param_groups(
     Returns:
         Instance of MegatronOptimizer.
     """
-
     # when freezing sub-models we may have no trainable parameters on a rank and
     # hence an empty param_groups. However, we still need to create an optimizer
     # for the purposes of grad stats reductions
     if param_groups:
-        if config.optimizer == 'adam':
+        if config.optimizer_cpu_offload:
+            if torch.__version__ < '2.3.0':
+                # is_available = lambda: False
+                # set cuda not available for complex cuda inspection
+                torch.cuda.is_available = lambda : False
+                # use DeepSpeedCPUAdam for better performance
+                from deepspeed.ops.adam import DeepSpeedCPUAdam as CPUAdam
+                # reset the cuda availability back to normal
+                torch.cuda.is_available = torch.musa.is_available
+                warnings.warn("We use DeepSpeedCPUAdam instead of torch.optim.AdamW "
+                              "for better performace if torch.version < 2.3.0.")
+            else:
+                # torch.optim.AdamW supports __fused_adamw when torch.version >= 2.3.0
+                from torch.optim import AdamW as CPUAdam
+
+            # cpu optimizer offload must config use_precision_aware_optimizer to True,
+            # we should reconfig use_precision_aware_optimizer to break the compatibility.
+            if not int(os.getenv("CPU_OPTIMIZER_PRECISION_AWARE_RECONFIG", 0)):
+                config.use_precision_aware_optimizer = False
+
+            gpu_optimizer_cls = Adam if config.optimizer == 'adam' else SGD
+            cpu_optimizer_cls = CPUAdam if config.optimizer == 'adam' else CPUSGD
+            if config.use_torch_optimizer_for_cpu_offload:
+                gpu_optimizer_cls = cpu_optimizer_cls
+            if config.optimizer == 'adam':
+                gpu_optimizer_cls = Adam
+                cpu_optimizer_cls = CPUAdam
+                optimizer_defaults = dict(
+                    lr=config.lr,
+                    weight_decay=config.weight_decay,
+                    betas=(config.adam_beta1, config.adam_beta2),
+                    eps=config.adam_eps,
+                    bias_correction=True,
+                    fused=True,  # this flag is used to improve the performance of the cpu optimizer
+                )
+            else:
+                gpu_optimizer_cls = SGD
+                cpu_optimizer_cls = CPUSGD
+                optimizer_defaults = dict(
+                    lr=config.lr, weight_decay=config.weight_decay, momentum=config.sgd_momentum
+                )
+
+            optimizer = HybridDeviceOptimizer(
+                param_groups,
+                offload_fraction=config.optimizer_offload_fraction,
+                cpu_optimizer_cls=cpu_optimizer_cls,
+                gpu_optimizer_cls=gpu_optimizer_cls,
+                overlap_cpu_optimizer_d2h_h2d=config.overlap_cpu_optimizer_d2h_h2d,
+                pin_cpu_grads=config.pin_cpu_grads,
+                pin_cpu_params=config.pin_cpu_params,
+                param_update_in_fp32=True,
+                **optimizer_defaults,
+            )
+            init_state_fn = None
+        elif config.optimizer == 'adam':
             kwargs = {
                 "params": param_groups,
                 "lr": config.lr,
@@ -92,6 +148,9 @@ def _get_megatron_optimizer_based_on_param_groups(
                         "exp_avg_sq_dtype": config.exp_avg_sq_dtype,
                     }
                 )
+
+                if is_te_min_version("2.1.0.dev0"):
+                    kwargs.update({"store_param_remainders": True})
 
             optimizer = Adam(**kwargs)
 
@@ -197,11 +256,9 @@ def _get_megatron_optimizer_based_on_param_groups(
 
     return optimizer
 
-
 import sys
 for k in sys.modules:
     if k.startswith('megatron'):
         for target in ['_get_megatron_optimizer_based_on_param_groups']:
             if getattr(sys.modules[k], target, None):
                 setattr(sys.modules[k], target, _get_megatron_optimizer_based_on_param_groups)
-
