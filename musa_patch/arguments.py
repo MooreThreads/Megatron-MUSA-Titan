@@ -99,7 +99,7 @@ def _add_moe_args(parser):
     group.add_argument('--moe-permute-fusion', action='store_true',
                        help='Fuse token rearrangement ops during token dispatching.')
     
-    # HACK(yehua.zhang): add dsv2 & dsv3 loss, mtp, q-rms-recompute
+    # HACK(yehua.zhang): add dsv2 & dsv3 loss, q-rms-recompute
     # dsv2
     group.add_argument('--moe-device-level-aux-loss-coeff', type=float, default=None,
                        help='Scaling coefficient for the device-level aux loss')
@@ -113,15 +113,8 @@ def _add_moe_args(parser):
                        help='use complementary sequence-wise aux loss in MoE, should only used with seq_aux_loss')
     group.add_argument('--moe-router-norm-topk-prob', action='store_true',
                        help='Enable normalization for sigmoid score in MoE, should only used with moe-router-use-sigmoid')
-    
-    # Multi token prediction
-    group.add_argument('--use-multi-token-prediction', action='store_true',
-                       help='Use multi token prediction or not to help training')
-    group.add_argument('--mtp-coeff', type=float, default=1e-4,
-                       help='Multi token prediction loss coefficient. ')
-    group.add_argument('--mtp-depth', type=int, default=0,
-                       help='Multi token prediction module depth.')
 
+    # q-rms-recompute
     group = parser.add_argument_group(title="mla")
     group.add_argument('--q-rms-recompute', action='store_true',
                        help="use q uproj rmsnorm recompute")
@@ -198,10 +191,6 @@ def core_transformer_config_from_args(args, config_class=None):
     config_instance.moe_complementary_seq_aux_loss = args.moe_complementary_seq_aux_loss
     config_instance.moe_router_norm_topk_prob = args.moe_router_norm_topk_prob
     config_instance.moe_device_level_capacity = args.moe_device_level_capacity
-
-    config_instance.use_multi_token_prediction = args.use_multi_token_prediction
-    config_instance.mtp_coeff = args.mtp_coeff
-    config_instance.multi_token_prediction_depth = args.mtp_depth
 
     config_instance.q_rms_recompute = args.q_rms_recompute
     print('config_instance is ', config_instance)
