@@ -5,9 +5,6 @@ from megatron.core import tensor_parallel, parallel_state
 from megatron.core.models.common.embeddings import apply_rotary_pos_emb
 from megatron.core.transformer.multi_latent_attention import MLASelfAttention
 try:
-    from megatron.core.extensions.transformer_engine import (
-        te_checkpoint,
-    )
     from transformer_engine.pytorch.distributed import checkpoint
     from transformer_engine.pytorch.distributed import checkpointViranceAttention
     HAVE_TE = True

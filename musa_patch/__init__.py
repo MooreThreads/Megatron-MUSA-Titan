@@ -26,15 +26,11 @@ def patch_before_import_megatron():
     from . import rotary_pos_embedding
     from . import p2p_communication
     from . import fused_bias_swiglu
-    from . import multi_latent_attention
     from . import moe_utils
     from . import router
     from . import arguments
-    from . import transformer_engine
-    from . import random
-    from . import recomupte_variance
-    if int(os.getenv("USE_MTP", 0)):
-        from . import multi_token_prediction
+    if int(os.getenv("USE_RECOMPUTE_VARIANCE", 0)):
+        from . import recomupte_variance
     if int(os.getenv("USE_EPX", 0)):
         from . import fault_tolerance_epx
         from . import parallel_state

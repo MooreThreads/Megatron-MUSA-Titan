@@ -112,7 +112,6 @@ TRAINING_ARGS=(
     --multi-latent-attention
     # --decoder-first-pipeline-num-layers 2
     --decoder-last-pipeline-num-layers 6
-    --q-rms-recompute
     --qk-layernorm
 )
 
