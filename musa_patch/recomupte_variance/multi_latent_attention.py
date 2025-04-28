@@ -1,4 +1,4 @@
-
+import os
 import torch
 from functools import partial
 from megatron.core import tensor_parallel, parallel_state
@@ -14,7 +14,51 @@ except ImportError:
 # HACK(huang.huang): recompute-variance for fa: 
 # 1. modify get_query_key_value_tensors for MLASelfAttention, just add a logic to call recompute;
 # 2. modify forward for MLASelfAttention, seperate the core attention from other part around it, and send them to checkpoint_forward
+# 3. add RoPEQInplace
 # TODO: huang.huang revise code before to follow new version "get_qkv" in Megatron-LM:main
+class RoPEQInplace(torch.autograd.Function):
+    """
+    limiation:
+    1. pre_op backward cannot use self output(e.g. softmax).
+    2. if you call backward directly and pass in dy, be careful that dy is overwritten.
+    """
+
+    @staticmethod
+    def forward(ctx, x, freqs, custom_metadata):
+        (
+            split_start,
+            split_end,
+            rotary_interleaved,
+            batch_first,
+        ) = ctx.custom_metadata = custom_metadata
+        assert x.dim() == 4 and freqs.dim() == 2
+        assert (split_end - split_start) == freqs.shape[-1]
+        assert x.shape[batch_first] == freqs.shape[0]
+        ctx.save_for_backward(freqs)
+        y = torch.ops.aten._fused_rope_forward(
+            x[..., split_start:split_end], freqs, rotary_interleaved, batch_first
+        )
+        # x.data[..., split_start:split_end] = y # Using `tensor.data` does not affect `tensor._version`.
+        x[..., split_start:split_end] = y
+        return x
+
+    @staticmethod
+    def backward(ctx, dy):
+        (freqs,) = ctx.saved_tensors
+        (
+            split_start,
+            split_end,
+            rotary_interleaved,
+            batch_first,
+        ) = ctx.custom_metadata
+        sub_dy = dy[..., split_start:split_end]
+        dx = torch.ops.aten._fused_rope_backward(
+            sub_dy, freqs, rotary_interleaved, batch_first
+        )
+        dy[..., split_start:split_end] = dx
+        return dy, None, None
+
+
 def MLASelfAttention_forward(
     self,
     hidden_states,
@@ -31,7 +75,7 @@ def MLASelfAttention_forward(
     q_compressed=None,
     kv_combined=None,
 ):
-    if not getattr(self.config, 'attn_recompute', None):
+    if not int(os.getenv("USE_RECOMPUTE_VARIANCE", 0)):
         #original forward
         return super(MLASelfAttention ,self).forward(
             hidden_states,
@@ -141,16 +185,22 @@ def MLASelfAttention_forward(
         else:
             cu_seqlens_q = cu_seqlens_kv = None
 
-        # q_pos_emb: [s, b, n, 64], k_pos_emb:[s, b, 1, 64]
-        q_pos_emb = apply_rotary_pos_emb(
-            q_pos_emb, rotary_pos_emb, config=self.config, cu_seqlens=cu_seqlens_q, mscale=mscale
-        )
+        # # q_pos_emb: [s, b, n, 64], k_pos_emb:[s, b, 1, 64]
+        # q_pos_emb = apply_rotary_pos_emb(
+        #     q_pos_emb, rotary_pos_emb, config=self.config, cu_seqlens=cu_seqlens_q, mscale=mscale
+        # )
         k_pos_emb = apply_rotary_pos_emb(
             k_pos_emb, rotary_pos_emb, config=self.config, cu_seqlens=cu_seqlens_kv, mscale=mscale
         )
 
-        # query: [s, b, n, 192]
-        query = torch.cat([q_no_pe, q_pos_emb], dim=-1)
+        # # query: [s, b, n, 192]
+        # query = torch.cat([q_no_pe, q_pos_emb], dim=-1)
+        q_split_start = self.config.qk_head_dim
+        q_split_end = q_split_start + self.config.qk_pos_emb_head_dim
+        rotary_interleaved = False
+        batch_first = False
+        query = RoPEQInplace.apply(q, rotary_pos_emb.squeeze(1).squeeze(1), 
+                                   (q_split_start, q_split_end, rotary_interleaved, batch_first))
 
         # key: [s, b, n, 192]
         k_pos_emb = k_pos_emb.expand(-1, -1, self.config.num_attention_heads, -1)
