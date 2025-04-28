@@ -79,6 +79,7 @@ def patch_after_import_torch():
     torch.cuda.manual_seed = torch.musa.manual_seed
     torch.cuda.Event = torch.musa.Event
     torch.cuda.Stream = torch.musa.Stream
+    torch.cuda.stream = torch.musa.stream
     torch.cuda.get_device_properties = torch.musa.get_device_properties
     # add torch.musa.current_devce() to activate torch.musa.default_generators
     d = torch.musa.current_device()

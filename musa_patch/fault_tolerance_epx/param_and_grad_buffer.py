@@ -205,7 +205,7 @@ def finish_grad_sync(self):
         if int(os.getenv("USE_GLOO_BACKEND", 0)):
             origin_device = replica_grad[0].device
             cpu_data = [replica_grad[0].cpu()]
-            lcp.allreduce(cpu_data)
+            lcp.allreduce(cpu_data).wait()
             replica_grad[0].copy_(cpu_data[0].to(origin_device))
         else:
             lcp.allreduce(replica_grad)

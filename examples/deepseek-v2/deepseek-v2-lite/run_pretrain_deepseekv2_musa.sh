@@ -15,10 +15,13 @@ set -u
   RDZV_ID=${12}
 set +u
 # export ENABLE_PROFILER=1
-# export PROFILER_FREQ=4
+# export PROFILER_FREQ=6
 # export PROFILER_WARMUP_STEPS=3
+# export PROFILER_ACTIVE_STEPS=3
+# export PROFILER_REPEAT_NUM=1
 # export MUSA_LAUNCH_BLOCKING=1
 # export PROFILER_PROFILE_MEMORY=1
+
 export OMP_NUM_THREADS=4
 export MUSA_VISIBLE_DEVICES=${MUSA_VISIBLE_DEVICES:-'0,1,2,3,4,5,6,7'}
 export MUSA_KERNEL_TIMEOUT=3200000
@@ -118,6 +121,9 @@ TRAINING_ARGS=(
     --distributed-backend nccl
     --multi-latent-attention
     --qk-layernorm
+    # --overlap-grad-reduce
+    # --overlap-param-gather
+    # --overlap-param-gather-with-optimizer-step # only supported with interleaved pipeline parallelism
     # --attn-recompute
     # --recompute-variance
     # --mlp-recompute
