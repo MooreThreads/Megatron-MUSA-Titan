@@ -111,17 +111,13 @@ def start_grad_sync(self):
                 )
 
                 if int(os.getenv("USE_EPX", 0)) and not async_op:
-                    lcp = parallel_state.get_epx_data_parallel_lcp()
-                    lcp.assemble()
-                    logger.info("start epx allreduce")
-                    logger.debug(f"grad before epx allreduce : {local_data_view[:10]}")
-                    lcp.allreduce([local_data_view])
-                    logger.info("finished epx allreduce")
-                    logger.debug(f"grad after epx allreduce : {local_data_view[:10]}")
+                    epx_sync_grad_across_instances(local_data_view)
             else:
                 torch.distributed.all_reduce(
                     bucket.grad_data, op=reduce_op, group=communication_group, async_op=async_op
                 )
+                if int(os.getenv("USE_EPX", 0)) and not async_op:
+                    epx_sync_grad_across_instances(bucket.grad_data)
 
     # print('before before allreduce')
     # With multiple DistOpt instances, we need to all-reduce across instances.
@@ -186,31 +182,31 @@ def finish_grad_sync(self):
     self.grad_reduce_handle.wait()
     self.grad_reduce_handle = None
 
+    # TODO: Using `_coalescing_manager` to optimize code structure.
     if int(os.getenv("USE_EPX", 0)):
         for bucket in self.buckets:
-            replica_grad = [bucket.grad_data]
-
             if self.ddp_config.use_distributed_optimizer:
                 local_data_view = shard_buffer(
                     bucket.grad_data, self.intra_distributed_optimizer_instance_size
                 )[self.intra_distributed_optimizer_instance_rank]
+                if int(os.getenv("USE_EPX", 0)):
+                    epx_sync_grad_across_instances(local_data_view)
+            else:
+                if int(os.getenv("USE_EPX", 0)):
+                    epx_sync_grad_across_instances(bucket.grad_data)
 
-                replica_grad = [local_data_view]
-
-        logger.info(f"start epx async allreduce")
-
-        lcp = parallel_state.get_epx_data_parallel_lcp()
-        lcp.assemble()
-
-        if int(os.getenv("USE_GLOO_BACKEND", 0)):
-            origin_device = replica_grad[0].device
-            cpu_data = [replica_grad[0].cpu()]
-            lcp.allreduce(cpu_data).wait()
-            replica_grad[0].copy_(cpu_data[0].to(origin_device))
-        else:
-            lcp.allreduce(replica_grad)
-
-        logger.info(f"finish epx async allreduce ")
+def epx_sync_grad_across_instances(tensor):
+    """
+    Sync grad across instances.
+    """
+    lcp = parallel_state.get_epx_data_parallel_lcp()
+    # TODO: avoid assemble before each allreduce
+    lcp.assemble()
+    logger.info("start epx allreduce")
+    logger.debug(f"grad before epx allreduce : {tensor[:10]}")
+    lcp.allreduce([tensor]).wait()
+    logger.info("finished epx allreduce")
+    logger.debug(f"grad after epx allreduce : {tensor[:10]}")
 
 _ParamAndGradBucketGroup.start_grad_sync = start_grad_sync
 _ParamAndGradBucketGroup.finish_grad_sync = finish_grad_sync
