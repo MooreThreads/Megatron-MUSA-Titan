@@ -191,7 +191,10 @@ py_patch()
 
 patch_after_import_torch()
 
-patch_before_import_megatron()
+if os.getenv("ENABLE_ZERO_BUBBLE", "0") == "1":
+    from .import zbb_light
+    zbb_light.patch_megatron()
 
+patch_before_import_megatron()
 
 
