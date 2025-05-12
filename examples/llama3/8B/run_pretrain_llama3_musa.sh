@@ -64,7 +64,7 @@ DISTRIBUTED_ARGS=(
     --master_addr $MASTER_ADDR 
     --master_port $MASTER_PORT 
     --log_dir $WORK_HOME/output_log/$RDZV_ID/$EXPNAME
-    --redirects 3
+    --redirects ${LOG_REDIRECTS_LEVEL:-3}
 )
 
 MODEL_ARGS=(
@@ -103,9 +103,9 @@ TRAINING_ARGS=(
     --recompute-granularity full 
     --recompute-method block 
     --recompute-num-layers 0 
-    --distributed-backend nccl 
-    --transformer-impl local
+    --distributed-backend nccl
 )
+
 # --no-bias-swiglu-fusion
 # --no-rope-fusion
 # --no-gradient-accumulation-fusion 
@@ -160,6 +160,12 @@ EVAL_AND_LOGGING_ARGS=(
     --tensorboard-dir $TB_PATH 
 )
 
+TRANSFORMER_ENGINE_ARGS=(
+    --transformer-impl transformer_engine
+    --fp8-format hybrid
+    --fp8-param-gather
+)
+
 # if [ -n "${WANDB_API_KEY}" ]; then
 #     EVAL_AND_LOGGING_ARGS+=(
 #         --wandb-project ${WANDB_PROJECT:-"Mixtral-Finetuning"}
@@ -175,7 +181,8 @@ cmd="torchrun ${DISTRIBUTED_ARGS[@]} $WORK_HOME/pretrain_gpt.py \
         ${MODEL_PARALLEL_ARGS[@]} \
         ${MIXED_PRECISION_ARGS[@]}
         ${DATA_ARGS[@]} \
-        ${EVAL_AND_LOGGING_ARGS[@]}
+        ${EVAL_AND_LOGGING_ARGS[@]} \
+        ${TRANSFORMER_ENGINE_ARGS[@]}
     "
 echo $cmd
 eval $cmd
