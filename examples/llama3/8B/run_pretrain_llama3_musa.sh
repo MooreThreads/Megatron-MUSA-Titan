@@ -152,6 +152,7 @@ DATA_ARGS="
 
 EVAL_AND_LOGGING_ARGS=(
     --log-interval 1
+    --log-throughput
     --save-interval 200000 
     --eval-interval 1000 
     --save $CHECKPOINT_PATH 
