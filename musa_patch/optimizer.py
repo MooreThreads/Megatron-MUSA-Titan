@@ -37,6 +37,7 @@ from megatron.core.optimizer import (
     MegatronOptimizer,
 )
 from megatron.core.optimizer.optimizer_config import OptimizerConfig
+from megatron.core.utils import is_te_min_version
 
 
 logger = logging.getLogger(__name__)
@@ -209,46 +210,19 @@ def _get_megatron_optimizer_based_on_param_groups(
                 )
 
         optimizer_args = [optimizer, config, grad_scaler, init_state_fn]
-
-        if int(os.getenv("USE_EPX", 0)):
-            from epx.optim import epx_optimizer_wrapper
-            import megatron.core.parallel_state as parallel_state
-            lcp = parallel_state.get_epx_data_parallel_lcp()
-
         if config.use_distributed_optimizer:
-            if int(os.getenv("USE_EPX", 0)):
-                logger.info(f"Wrap DistributedOptimizer with EpxOptimizer")
-                EpxOptimizer = epx_optimizer_wrapper(lcp)(DistributedOptimizer)
-                optimizer = EpxOptimizer(
-                    *optimizer_args,
-                    model_chunks=model_chunks,
-                    per_model_buffers=per_model_buffers,
-                    data_parallel_group=data_parallel_group,
-                    data_parallel_group_gloo=data_parallel_group_gloo,
-                    data_parallel_group_idx=data_parallel_group_idx,
-                    distributed_optimizer_instance_id=distributed_optimizer_instance_id,
-                )
-            else:
-                logger.info(f"Use DistributedOptimizer")
-                optimizer = DistributedOptimizer(
-                    *optimizer_args,
-                    model_chunks=model_chunks,
-                    per_model_buffers=per_model_buffers,
-                    data_parallel_group=data_parallel_group,
-                    data_parallel_group_gloo=data_parallel_group_gloo,
-                    data_parallel_group_idx=data_parallel_group_idx,
-                    distributed_optimizer_instance_id=distributed_optimizer_instance_id,
-                )
+            optimizer = DistributedOptimizer(
+                *optimizer_args,
+                model_chunks=model_chunks,
+                per_model_buffers=per_model_buffers,
+                data_parallel_group=data_parallel_group,
+                data_parallel_group_gloo=data_parallel_group_gloo,
+                data_parallel_group_idx=data_parallel_group_idx,
+                distributed_optimizer_instance_id=distributed_optimizer_instance_id,
+            )
         else:
-            if int(os.getenv("USE_EPX", 0)):
-                logger.info(f"Wrap Float16OptimizerWithFloat16Params with EpxOptimizer")
-                EpxOptimizer = epx_optimizer_wrapper(lcp)(Float16OptimizerWithFloat16Params)
-                optimizer = EpxOptimizer(*optimizer_args)
-                setattr(optimizer, 'grad_stats_parallel_group', model_parallel_group)
-            else:
-                logger.info(f"Use Float16OptimizerWithFloat16Params")
-                optimizer = Float16OptimizerWithFloat16Params(*optimizer_args)
-                setattr(optimizer, 'grad_stats_parallel_group', model_parallel_group)
+            optimizer = Float16OptimizerWithFloat16Params(*optimizer_args)
+            setattr(optimizer, 'grad_stats_parallel_group', model_parallel_group)
     else:
         # FP32 optimizer.
         optimizer = FP32Optimizer(optimizer, config, init_state_fn)

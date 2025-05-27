@@ -4,10 +4,10 @@ import gc
 import os
 import sys
 import logging
-import time
 import torch
 import torch.distributed
 from megatron.core import mpu
+
 from megatron.core.transformer.moe.moe_utils import track_moe_metrics
 from megatron.core.transformer.moe.router import TopKRouter
 from megatron.training.global_vars import (
@@ -17,7 +17,7 @@ from megatron.training.global_vars import (
     get_wandb_writer,
     get_one_logger
 )
-    # get_num_microbatches
+# get_num_microbatches
 from megatron.core.num_microbatches_calculator import get_num_microbatches
 from megatron.training.utils import (
     report_memory,
@@ -25,21 +25,18 @@ from megatron.training.utils import (
 )
 from megatron.core.utils import (
     check_param_hashes_across_dp_replicas,
-    log_single_rank
 )
-from megatron.core.optimizer_param_scheduler import OptimizerParamScheduler
 from megatron.training.theoretical_memory_usage import report_theoretical_memory
 from megatron.training import one_logger_utils
 from megatron.training.initialize import write_args_to_tensorboard
 from megatron.core.distributed import finalize_model_grads
 from megatron.core.distributed import DistributedDataParallel as DDP
+
 from megatron.training.training import (
     print_datetime,
     save_checkpoint_and_time,
     train_step,
     evaluate_and_print_results,
-    _TRAIN_START_TIME,
-    update_train_iters,
 )
 from megatron.training.async_utils import maybe_finalize_async_save
 from megatron.core.num_microbatches_calculator import (
@@ -50,31 +47,27 @@ from megatron.core.num_microbatches_calculator import (
 )
 from megatron.training.utils import (
     calc_params_l2_norm,
-    check_adlr_autoresume_termination,
     print_rank_0,
     print_rank_last,
     report_memory,
-    is_last_rank
 )
 from megatron.training import ft_integration
 from megatron.training.global_vars import (
     get_args,
-    get_signal_handler,
     get_timers,
     get_tensorboard_writer,
     get_wandb_writer,
     get_one_logger
 )
-from .profiling import (
-    maybe_enable_profiling,
-    maybe_enable_memory_snapshot
-)
+from .profiling import maybe_enable_profiling
+
 from megatron.training.training import (
     enable_forward_pre_hook,
     disable_forward_pre_hook,
     post_training_step_callbacks,
     checkpoint_and_decide_exit
 )
+
 try:
     import mlflow
 except Exception as e:
@@ -826,74 +819,7 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
 
     return iteration, num_floating_point_operations_so_far
 
-def get_optimizer_param_scheduler(optimizer):
-    """Build the learning rate scheduler."""
-    args = get_args()
-
-    # Iteration-based training.
-    if args.train_iters:
-        if args.lr_decay_iters is None:
-            args.lr_decay_iters = args.train_iters
-        lr_decay_steps = args.lr_decay_iters * args.global_batch_size
-        wd_incr_steps = args.train_iters * args.global_batch_size
-        wsd_decay_steps = None
-        if args.lr_wsd_decay_iters is not None:
-            wsd_decay_steps = args.lr_wsd_decay_iters * args.global_batch_size
-        if args.lr_warmup_fraction is not None:
-            lr_warmup_steps = args.lr_warmup_fraction * lr_decay_steps
-        else:
-            lr_warmup_steps = args.lr_warmup_iters * args.global_batch_size
-    # Sample-based training.
-    elif args.train_samples:
-        # We need to set training iters for later use. Technically
-        # we need to adjust the training samples too (due to last
-        # batch being incomplete) but we leave it as is for now.
-        update_train_iters(args)
-        if args.lr_decay_samples is None:
-            args.lr_decay_samples = args.train_samples
-        lr_decay_steps = args.lr_decay_samples
-        wd_incr_steps = args.train_samples
-        wsd_decay_steps = args.lr_wsd_decay_samples
-        if args.lr_warmup_fraction is not None:
-            lr_warmup_steps = args.lr_warmup_fraction * lr_decay_steps
-        else:
-            lr_warmup_steps = args.lr_warmup_samples
-    else:
-        raise Exception(
-            'either train-iters or train-samples should be provided.')
-
-    opt_param_scheduler = None
-    WrappedLrScheduler = OptimizerParamScheduler # Without Fault tolerance wrap
-
-    # Wrap OptimizerParamScheduler for Fault tolerance
-    if int(os.getenv("USE_EPX", 0)):
-        from epx.lr_scheduler import epx_lr_scheduler_wrapper
-        import megatron.core.parallel_state as parallel_state
-        lcp = parallel_state.get_epx_data_parallel_lcp()
-        log_single_rank(logger, logging.INFO,
-                        f"Wrap OptimizerParamScheduler with EpxLrSchedulerWrapper")
-        WrappedLrScheduler = epx_lr_scheduler_wrapper(lcp)(OptimizerParamScheduler)
-
-    opt_param_scheduler = WrappedLrScheduler(
-        optimizer,
-        init_lr=args.lr_warmup_init,
-        max_lr=args.lr,
-        min_lr=args.min_lr,
-        lr_warmup_steps=lr_warmup_steps,
-        lr_decay_steps=lr_decay_steps,
-        lr_decay_style=args.lr_decay_style,
-        start_wd=args.start_weight_decay,
-        end_wd=args.end_weight_decay,
-        wd_incr_steps=wd_incr_steps,
-        wd_incr_style=args.weight_decay_incr_style,
-        use_checkpoint_opt_param_scheduler=args.use_checkpoint_opt_param_scheduler,
-        override_opt_param_scheduler=args.override_opt_param_scheduler,
-        wsd_decay_steps=wsd_decay_steps,
-        lr_wsd_decay_style=args.lr_wsd_decay_style)
-
-    return opt_param_scheduler
 
 import megatron.training
 megatron.training.training.training_log = training_log
 megatron.training.training.train = train
-megatron.training.training.get_optimizer_param_scheduler = get_optimizer_param_scheduler
