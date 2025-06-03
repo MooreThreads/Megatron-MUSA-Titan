@@ -23,6 +23,9 @@ from megatron.training.utils import (
     report_memory,
     print_rank_last
 )
+from megatron.core.rerun_state_machine import (
+    get_rerun_state_machine,
+)
 from megatron.core.utils import (
     check_param_hashes_across_dp_replicas,
 )
@@ -68,6 +71,17 @@ from megatron.training.training import (
     checkpoint_and_decide_exit
 )
 
+from megatron.training.utils import (
+    calc_params_l2_norm,
+    logical_and_across_model_parallel_group,
+    reduce_max_stat_across_model_parallel_group,
+    print_rank_0,
+    print_rank_last,
+    report_memory,
+    unwrap_model,
+)
+
+from megatron.core.pipeline_parallel import get_forward_backward_func
 try:
     import mlflow
 except Exception as e:
@@ -195,6 +209,120 @@ def num_floating_point_operations(args, batch_size):
 def need_mlflow():
     return os.getenv("MLFLOW_TRACKING_URI", default=None) and \
             torch.distributed.get_rank() == (torch.distributed.get_world_size() - 1)
+
+
+def train_step(forward_step_func, data_iterator,
+               model, optimizer, opt_param_scheduler, config):
+    """Single training step."""
+    args = get_args()
+    timers = get_timers()
+
+    rerun_state_machine = get_rerun_state_machine()
+    while rerun_state_machine.should_run_forward_backward(data_iterator):
+        # Set grad to zero.
+        for model_chunk in model:
+            model_chunk.zero_grad_buffer()
+        optimizer.zero_grad()
+
+        # Forward pass.
+        forward_backward_func = get_forward_backward_func()
+        losses_reduced = forward_backward_func( # forward_data_store
+            forward_step_func=forward_step_func,
+            data_iterator=data_iterator,
+            model=model,
+            num_microbatches=get_num_microbatches(),
+            seq_length=args.seq_length,
+            micro_batch_size=args.micro_batch_size,
+            decoder_seq_length=args.decoder_seq_length,
+            forward_only=False)
+    should_checkpoint, should_exit, exit_code = rerun_state_machine.should_checkpoint_and_exit()
+    if should_exit:
+        return {}, True, should_checkpoint, should_exit, exit_code, None, None
+
+    # Empty unused memory.
+    if args.empty_unused_memory_level >= 1:
+        torch.cuda.empty_cache()
+
+    # Vision gradients.
+    if args.vision_pretraining and args.vision_pretraining_type == "dino":
+        unwrapped_model = unwrap_model(model[0])
+        unwrapped_model.cancel_gradients_last_layer(args.curr_iteration)
+
+    # Update parameters.
+
+    timers('optimizer', log_level=1).start(barrier=args.barrier_with_L1_time)
+    update_successful, grad_norm, num_zeros_in_grad = optimizer.step()
+    timers('optimizer').stop()
+
+    # when freezing sub-models we may have a mixture of successful and unsucessful ranks,
+    # so we must gather across mp ranks
+    update_successful = logical_and_across_model_parallel_group(update_successful)
+    # grad_norm and num_zeros_in_grad will be None on ranks without trainable params,
+    # so we must gather across mp ranks
+    grad_norm = reduce_max_stat_across_model_parallel_group(grad_norm)
+    if args.log_num_zeros_in_grad:
+        num_zeros_in_grad = reduce_max_stat_across_model_parallel_group(num_zeros_in_grad)
+
+    # Vision momentum.
+    if args.vision_pretraining and args.vision_pretraining_type == "dino":
+        unwrapped_model = unwrap_model(model[0])
+        unwrapped_model.update_momentum(args.curr_iteration)
+
+    # Update learning rate.
+    if update_successful:
+        increment = get_num_microbatches() * \
+                    args.micro_batch_size * \
+                    args.data_parallel_size
+        opt_param_scheduler.step(increment=increment)
+        skipped_iter = 0
+    else:
+        skipped_iter = 1
+
+    # Empty unused memory.
+    if args.empty_unused_memory_level >= 2:
+        torch.cuda.empty_cache()
+
+    if mpu.is_pipeline_last_stage(ignore_virtual=True):
+        # Average loss across microbatches.
+        loss_reduced = {}
+        for key in losses_reduced[0].keys():
+            numerator = 0
+            denominator = 0
+
+            # HACK(xuerong.huang): Reduce the report loss(loss_reduced) on the last training step of multi-microbatches.
+            if int(os.getenv("NO_LOSS_REDUCE", 0)):
+                val0 = losses_reduced[0][key]
+                if isinstance(val0, tuple) or isinstance(val0, list):
+                    reduce_data = [sum([v[key][0] for v in losses_reduced])] # get the sum of the losses of all microbatches
+                    reduce_data.extend([v[key][1] for v in losses_reduced]) # get the token-num of all microbatches
+                    reduce_data = torch.stack(reduce_data)     
+                    torch.distributed.all_reduce(reduce_data, group=mpu.get_data_parallel_group()) # reduce the losses-sum and token-num from all dp-ranks
+                    numerator = reduce_data[0] 
+                    denominator = sum(reduce_data[1:])
+                else:
+                    numerator = sum([v[key] for v in losses_reduced])
+                    denominator = len(losses_reduced)
+                    torch.distributed.all_reduce(numerator, group=mpu.get_data_parallel_group())    # reduce the losses-sum from all dp-ranks
+            # HACK(xuerong.huang): Reduce the report loss(loss_reduced) on the last training step of multi-microbatches.
+            else:
+                for x in losses_reduced:
+                    val = x[key]
+                    # there is one dict per microbatch. in new reporting, we average
+                    # over the total number of tokens across the global batch.
+                    if isinstance(val, tuple) or isinstance(val, list):
+                        numerator += val[0]
+                        denominator += val[1]
+                    else:
+                        # legacy behavior. we average over the number of microbatches,
+                        # and so the denominator is 1.
+                        numerator += val
+                        denominator += 1
+
+            loss_reduced[key] = numerator / denominator
+            
+        return loss_reduced, skipped_iter, should_checkpoint, should_exit, exit_code, grad_norm, num_zeros_in_grad
+    return {}, skipped_iter, should_checkpoint, should_exit, exit_code, grad_norm, num_zeros_in_grad
+
 
 def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_rate, iteration,
                  loss_scale, report_memory_flag, skipped_iter,
@@ -821,5 +949,6 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
 
 
 import megatron.training
+megatron.training.training.train_step = train_step
 megatron.training.training.training_log = training_log
 megatron.training.training.train = train
