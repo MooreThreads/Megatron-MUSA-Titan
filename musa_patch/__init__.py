@@ -26,8 +26,9 @@ def patch_before_import_megatron():
     from . import rotary_pos_embedding
     from . import p2p_communication
     from . import fused_bias_swiglu
-    from . import moe_utils
-    from . import router
+    if int(os.getenv("USE_MUSA_MOE", 0)):
+        from . import moe_utils
+        from . import router
     from . import arguments
     if int(os.getenv("USE_RECOMPUTE_VARIANCE", 0)):
         from . import recomupte_variance
