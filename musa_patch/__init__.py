@@ -36,6 +36,8 @@ def patch_before_import_megatron():
         from . import fault_tolerance_epx
         from . import parallel_state
     from . import optimizer
+    if int(os.getenv("ENABLE_D2H_IN_PERMUTATION", 0)):
+        from . import token_dispatcher
 
     from . import core_pipeline_parallel_schedules
     # Disable some unsupprted features
@@ -96,6 +98,31 @@ def patch_after_import_torch():
     torch.cuda._lazy_init = torch.musa.core._lazy_init._lazy_init
 
     # 2.Patch for torch args related to cuda/musa
+    def hook_cuda_device(device):
+        if isinstance(device, str) and device.startswith("cuda"):
+            return device.replace("cuda", "musa")
+        if isinstance(device, torch.device) and device.type == "cuda":
+            return torch.device("musa", device.index)
+        return device
+
+    def maybe_hook_cuda_args(args, kwargs):
+        new_args = []
+        for arg in args:
+            new_args.append(hook_cuda_device(arg))
+        if "device" in kwargs:
+            v = kwargs["device"]
+            kwargs['device'] = hook_cuda_device(v)
+        return tuple(new_args), kwargs
+    
+    # retain torch.full reference
+    original_full = torch.full
+    # redeine torch.zeros
+    def patched_full(*args, **kwargs):
+        args, kwargs = maybe_hook_cuda_args(args, kwargs)
+        result = original_full(*args, **kwargs)
+        return result
+    torch.full = patched_full
+
     # retain torch.tensor reference
     original_tensor = torch.tensor
     # redefine torch.tensor

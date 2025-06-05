@@ -99,6 +99,11 @@ def _add_moe_args(parser):
     group.add_argument('--moe-permute-fusion', action='store_true',
                        help='Fuse token rearrangement ops during token dispatching.')
     
+    # HACK(huang.huang): control dp_reduce position: tp-only-amax-red 
+    group.add_argument('--tp-only-amax-red', action='store_true',
+                        help="Whether to reduce the FP8 AMAX only in the TP or TP-CP domain") 
+    ## HACK(huang.huang)
+
     # HACK(yehua.zhang): add dsv2 & dsv3 loss, q-rms-recompute
     # dsv2
     group.add_argument('--moe-device-level-aux-loss-coeff', type=float, default=None,
@@ -193,7 +198,6 @@ def core_transformer_config_from_args(args, config_class=None):
     config_instance.moe_device_level_capacity = args.moe_device_level_capacity
 
     config_instance.q_rms_recompute = args.q_rms_recompute
-    print('config_instance is ', config_instance)
     ## HACK(yehua.zhang)
 
     # HACK(huang.huang): add attn-recompute, recompute-variance, mlp_recompute
@@ -209,6 +213,12 @@ def core_transformer_config_from_args(args, config_class=None):
         assert config_instance.num_layers_in_first_pipeline_stage is None and config_instance.num_layers_in_last_pipeline_stage is None, \
             f"For pipeline_model_parallel_size=1, first/last must be None, but get {config_instance.num_layers_in_first_pipeline_stage}/{config_instance.num_layers_in_last_pipeline_stage}"
     ## HACK(huang.huang)
+
+    # HACK(huang.huang): control dp_reduce position: tp-only-amax-red 
+    config_instance.tp_only_amax_red = args.tp_only_amax_red
+    ##HACK(huang.huang)
+    
+    print('config_instance is ', config_instance)
     return config_instance
 
 

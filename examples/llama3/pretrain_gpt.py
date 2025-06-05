@@ -174,8 +174,8 @@ def loss_func(loss_mask: torch.Tensor, output_tensor: torch.Tensor):
 
     # Reduce loss for logging.
     reporting_loss = loss.clone().detach()
-    torch.distributed.all_reduce(reporting_loss, group=mpu.get_data_parallel_group())
-
+    if not int(os.getenv("NO_LOSS_REDUCE", 0)): #TODO:(huang.huang) will influence the loss reported Now!
+        torch.distributed.all_reduce(reporting_loss, group=mpu.get_data_parallel_group())
     local_num_tokens = loss[1].clone().detach().to(torch.int)
     return (
         loss[0] * args.context_parallel_size,

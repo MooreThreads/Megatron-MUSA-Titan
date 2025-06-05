@@ -43,6 +43,8 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 export CPU_OPTIMIZER_PRECISION_AWARE_RECONFIG=${CPU_OPTIMIZER_PRECISION_AWARE_RECONFIG:-0}
 
 export USE_RECOMPUTE_VARIANCE=1
+export ENABLE_D2H_IN_PERMUTATION=0
+export NO_LOSS_REDUCE=0
 export USE_MUSA_MOE=1
 
 MEGATRON_PATH=${PATCH_HOME}/../Megatron-LM
@@ -139,6 +141,7 @@ TRAINING_ARGS=(
     # --optimizer-offload-fraction 1
     # --use-precision-aware-optimizer # cpu offload must be precision-aware
     # --overlap-cpu-optimizer-d2h-h2d
+    --tp-only-amax-red
 )
 
 MLA_ARGS=(

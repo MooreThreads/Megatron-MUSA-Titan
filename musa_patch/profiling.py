@@ -98,7 +98,7 @@ def maybe_enable_profiling(args, global_step):
             profile_memory=profile_memory,
             with_stack=with_stack,
             with_modules=with_modules,
-            start_step=global_step+1,
+            start_step=global_step,
         ) as torch_profiler:
             yield torch_profiler
     else:
