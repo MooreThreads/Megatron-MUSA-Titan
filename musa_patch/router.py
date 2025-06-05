@@ -1,16 +1,7 @@
 # Copyright (c) 2023, NVIDIA CORPORATION. All rights reserved.
 
-from abc import ABC, abstractmethod
 from functools import partial
-from typing import Callable
 import torch
-
-from megatron.core import parallel_state
-from megatron.core.transformer.moe.moe_utils import (
-    MoEAuxLossAutoScaler,
-    save_to_aux_losses_tracker,
-)
-from megatron.core.transformer.moe.router import TopKRouter
 
 from .moe_utils import (
     sequence_load_balancing_loss_func,
@@ -57,10 +48,6 @@ def seq_aux_loss_load_balancing(self, logits: torch.Tensor, bsz: int, seq_length
             activation=probs, load_balancing_loss_func=aux_loss_func
         )
 
-        if self.enable_expert_bias and torch.is_grad_enabled():
-            with torch.no_grad():
-                mean_token = logits.shape[0] * self.topk / logits.shape[1]
-                self.tokens_per_expert += (tokens_per_expert /mean_token).to(self.tokens_per_expert.device)
     return probs, routing_map
 
 

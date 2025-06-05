@@ -1,6 +1,6 @@
 
 import math
-from typing import Optional
+from typing import Optional, List
 
 import torch
 
@@ -10,59 +10,6 @@ from megatron.core.tensor_parallel.mappings import gather_from_sequence_parallel
 
 get_capacity = megatron.core.transformer.moe.moe_utils.get_capacity
 group_limited_topk = megatron.core.transformer.moe.moe_utils.group_limited_topk
-
-
-def node_limited_topk(
-    scores: torch.Tensor,
-    topk: int,
-    num_tokens: int,
-    num_experts: int,
-    moe_router_topk_limited_devices: int,
-    num_node_group: int=None,
-):
-    """Perform top-k routing on a subset of expert parallel ranks.
-
-    Selects N ranks for each token, then conducts top-k selection among experts on these node.
-    See DeepSeek-V3 technical report for details.
-
-    Args:
-        scores (torch.Tensor): Softmax scores from the router.
-        topk (int): The number of experts to select for each token.
-        num_tokens (int): The number of tokens.
-        num_experts (int): The number of experts.
-        moe_router_topk_limited_devices (int): Number of expert parallel ranks to consider for
-            each token during routing. None means no device limitation.
-
-    Returns:
-        Tuple[torch.Tensor, torch.Tensor]: Probs and indices tensor.
-    """
-
-    # Organize the experts into groups
-    if num_node_group is None:
-        ep_size = (
-            parallel_state.get_expert_model_parallel_world_size()
-        )  # num_node_group equals to expert parallel size/8
-        assert ep_size % 8 == 0, f"ep_size should be multiple of 8, but get {ep_size}"
-        num_node_group = ep_size // 8
-    node_k = topk // moe_router_topk_limited_devices #each token select node according to the sum of the highest K/M affinity scores
-    group_scores = (
-                scores.view(num_tokens, num_node_group, -1).topk(node_k, dim=-1)[0].sum(dim = -1)
-            )  # [n, n_group]
-    group_idx = torch.topk(
-                group_scores, k=moe_router_topk_limited_devices, dim=-1, sorted=False
-            )[
-                1
-            ]  # [n, moe_router_topk_limited_devices]
-    group_mask = torch.zeros_like(group_scores)  # [n, n_group]
-    group_mask.scatter_(1, group_idx, 1)  # [n, n_group]
-    score_mask = (
-        group_mask.unsqueeze(-1)
-        .expand(num_tokens, num_node_group, num_experts // num_node_group)
-        .reshape(num_tokens, -1)
-    )  # [n, e]
-    masked_scores = scores.masked_fill(~score_mask.bool(), 0.0)  # [n, e]
-    _, top_indices = torch.topk(masked_scores, k=topk, dim=-1)
-    return top_indices
 
 
 def sequence_load_balancing_loss_func(
@@ -252,7 +199,6 @@ def topk_softmax_with_capacity(
             _, capacity_indices = torch.topk(
                 topk_masked_group_gates, k=device_expert_capacity, dim=0, sorted=False
             )
-            # print(f'capacity_indices is {capacity_indices.shape} topk_masked_group_gates is {topk_masked_group_gates.shape}, device_expert_capacity is {device_expert_capacity}')
             capacity_mask = torch.zeros([num_tokens*num_experts//num_group, num_group], device=logits.device).scatter(0, capacity_indices, 1).bool()
             capacity_mask = capacity_mask.view(num_tokens, num_experts//num_group, num_group).permute(0,2,1).reshape(num_tokens, -1)
         else:
