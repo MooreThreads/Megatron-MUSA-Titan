@@ -25,15 +25,14 @@ def build_pretraining_data_loader(dataset, consumed_samples):
 
     if int(os.getenv("USE_EPX", 0)): # Fault tolerance sampler
         from epx import EpxSampler
+        import megatron.core.parallel_state as parallel_state
+        lcp = parallel_state.get_epx_data_parallel_lcp()
         log_single_rank(logger, logging.INFO, f"Use EpxSampler")
 
         batch_sampler = EpxSampler(
-            dataset=None,
             total_samples=len(dataset),
-            consumed_samples=consumed_samples,
-            micro_batch_size=args.micro_batch_size,
-            data_parallel_rank=mpu.get_data_parallel_rank(),
-            data_parallel_size=mpu.get_data_parallel_world_size())
+            lcp=lcp,
+            micro_batch_size=args.micro_batch_size)
     else: # Megatron sampler
         if args.dataloader_type == 'single':
             batch_sampler = MegatronPretrainingSampler(

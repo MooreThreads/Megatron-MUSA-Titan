@@ -13,6 +13,7 @@ set -u
   GLOBAL_BATCH_SIZE=${10}
   TOKENIZED_MODEL=${11}
   RDZV_ID=${12}
+  MASTER_PORT=${13}
 set +u
 # export ENABLE_PROFILER=1
 # export PROFILER_FREQ=6
@@ -75,7 +76,7 @@ export GPUS_PER_NODE=${GPUS_PER_NODE:-8}
 export NUM_NODES=$(cat $HOSTFILE | wc -l)
 export MASTER_ADDR=$(head -n1 $HOSTFILE | awk '{print $1;}')
 export NODE_RANK=$(awk -v node_addr="$NODE_ADDR" '{ranks[$1]=(FNR-1);} END {print ranks[node_addr];}' $HOSTFILE)
-export MASTER_PORT=12356
+export MASTER_PORT=${MASTER_PORT:-12356}
 
 echo "Distributed log_dir: $WORK_HOME/output_log/$RDZV_ID/$EXPNAME"
 

@@ -87,6 +87,8 @@ try:
 except Exception as e:
     print(f"import mlflow failed {str(e)}")
 
+import megatron.core.parallel_state as parallel_state
+
 logger = logging.getLogger(__name__)
 
 def throughput_calculator(args, elapsed_time_per_iter, consumed_tokens_per_iter):
@@ -295,9 +297,9 @@ def train_step(forward_step_func, data_iterator,
                 if isinstance(val0, tuple) or isinstance(val0, list):
                     reduce_data = [sum([v[key][0] for v in losses_reduced])] # get the sum of the losses of all microbatches
                     reduce_data.extend([v[key][1] for v in losses_reduced]) # get the token-num of all microbatches
-                    reduce_data = torch.stack(reduce_data)     
+                    reduce_data = torch.stack(reduce_data)
                     torch.distributed.all_reduce(reduce_data, group=mpu.get_data_parallel_group()) # reduce the losses-sum and token-num from all dp-ranks
-                    numerator = reduce_data[0] 
+                    numerator = reduce_data[0]
                     denominator = sum(reduce_data[1:])
                 else:
                     numerator = sum([v[key] for v in losses_reduced])
@@ -319,7 +321,7 @@ def train_step(forward_step_func, data_iterator,
                         denominator += 1
 
             loss_reduced[key] = numerator / denominator
-            
+
         return loss_reduced, skipped_iter, should_checkpoint, should_exit, exit_code, grad_norm, num_zeros_in_grad
     return {}, skipped_iter, should_checkpoint, should_exit, exit_code, grad_norm, num_zeros_in_grad
 
@@ -763,6 +765,10 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                         optimizer,
                         opt_param_scheduler,
                         config)
+
+            if int(os.getenv("USE_EPX", "0")):
+                lcp = parallel_state.get_epx_data_parallel_lcp()
+                iteration = lcp.get_step() - 1
 
             if should_checkpoint:
                 save_checkpoint_and_time(iteration, model, optimizer,

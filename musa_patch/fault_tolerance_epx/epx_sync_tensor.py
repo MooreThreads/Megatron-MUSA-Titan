@@ -4,13 +4,14 @@ import megatron.core.parallel_state as parallel_state
 
 logger = logging.getLogger(__name__)
 
-def epx_sync_tensor_across_replicas(tensor, opts=ReduceOp.SUM):
+def epx_sync_tensor_across_replicas(tensor, opts=ReduceOp.SUM, assemble=True):
     """
     Sync grad across instances.
     """
     lcp = parallel_state.get_epx_data_parallel_lcp()
     # TODO: avoid assemble before each allreduce
-    lcp.assemble()
+    if assemble:
+        lcp.assemble()
     logger.info("start epx allreduce")
     logger.debug(f"grad before epx allreduce : {tensor[:10]}")
     lcp.allreduce([tensor], opts).wait()

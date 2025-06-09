@@ -127,7 +127,7 @@ def get_grad_norm_fp32(
         )
 
         if int(os.getenv("USE_EPX", 0)):
-            epx_sync_tensor_across_replicas(total_norm, opts=torch.distributed.ReduceOp.SUM)
+            epx_sync_tensor_across_replicas(total_norm, opts=torch.distributed.ReduceOp.SUM, assemble=False)
 
         total_norm = total_norm.item() ** (1.0 / norm_type)
 
