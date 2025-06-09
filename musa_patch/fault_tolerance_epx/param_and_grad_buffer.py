@@ -9,6 +9,8 @@ from megatron.core.distributed.param_and_grad_buffer import _ParamAndGradBucketG
 import megatron.core.parallel_state as parallel_state
 from megatron.core.utils import is_torch_min_version
 
+from .epx_sync_tensor import epx_sync_tensor_across_replicas
+
 logger = logging.getLogger(__name__)
 
 if is_torch_min_version("1.13.0"):
@@ -109,13 +111,13 @@ def start_grad_sync(self):
                 )
 
                 if int(os.getenv("USE_EPX", 0)) and not async_op:
-                    epx_sync_grad_across_instances(local_data_view)
+                    epx_sync_tensor_across_replicas(local_data_view)
             else:
                 torch.distributed.all_reduce(
                     bucket.grad_data, op=reduce_op, group=communication_group, async_op=async_op
                 )
                 if int(os.getenv("USE_EPX", 0)) and not async_op:
-                    epx_sync_grad_across_instances(bucket.grad_data)
+                    epx_sync_tensor_across_replicas(bucket.grad_data)
 
     # print('before before allreduce')
     # With multiple DistOpt instances, we need to all-reduce across instances.
@@ -188,23 +190,10 @@ def finish_grad_sync(self):
                     bucket.grad_data, self.intra_distributed_optimizer_instance_size
                 )[self.intra_distributed_optimizer_instance_rank]
                 if int(os.getenv("USE_EPX", 0)):
-                    epx_sync_grad_across_instances(local_data_view)
+                    epx_sync_tensor_across_replicas(local_data_view)
             else:
                 if int(os.getenv("USE_EPX", 0)):
-                    epx_sync_grad_across_instances(bucket.grad_data)
-
-def epx_sync_grad_across_instances(tensor):
-    """
-    Sync grad across instances.
-    """
-    lcp = parallel_state.get_epx_data_parallel_lcp()
-    # TODO: avoid assemble before each allreduce
-    lcp.assemble()
-    logger.info("start epx allreduce")
-    logger.debug(f"grad before epx allreduce : {tensor[:10]}")
-    lcp.allreduce([tensor]).wait()
-    logger.info("finished epx allreduce")
-    logger.debug(f"grad after epx allreduce : {tensor[:10]}")
+                    epx_sync_tensor_across_replicas(bucket.grad_data)
 
 _ParamAndGradBucketGroup.start_grad_sync = start_grad_sync
 _ParamAndGradBucketGroup.finish_grad_sync = finish_grad_sync

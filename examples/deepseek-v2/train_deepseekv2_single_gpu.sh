@@ -1,6 +1,10 @@
 #!/bin/bash
-# run without epx: bash train_deepseekv2_single_gpu.sh --dataset_dir /home/llama2_dataset --data_format fp8
-# run with epx: bash train_deepseekv2_single_gpu.sh --dataset_dir /home/llama2_dataset --data_format fp8 -u -m --cpp_port 9008
+#
+# run without epx:
+# bash train_deepseekv2_single_gpu.sh --dataset_dir /home/workspace/llama2_dataset --data_format fp8
+#
+# run with epx:
+# bash train_deepseekv2_single_gpu.sh --dataset_dir /root/workspace/llama2_dataset --data_format fp8 -u -m --ccp_port 9008
 
 # 默认参数
 DATA_FORMAT="fp8"    # default fp8
@@ -54,6 +58,7 @@ setup_epx_env() {
     export EPX_LCP_BIN="$EPX_PATH/target/debug/epx-lcp"
 
     if [ "$EPX_MASTER_PROCESS" -ne 0 ]; then
+        echo "Starting epx-store... on port $EPX_STORE_PORT"
         python  $EPX_STORE_PATH --addr "$HOST_ADDR" &
         STORE_PID=$!
     fi
