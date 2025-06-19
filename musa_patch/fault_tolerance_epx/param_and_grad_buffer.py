@@ -110,13 +110,13 @@ def start_grad_sync(self):
                     async_op=async_op,
                 )
 
-                if int(os.getenv("USE_EPX", 0)) and not async_op:
+                if int(os.getenv("USE_EPX", 0)) and int(os.getenv("EPX_ELASTIC_MODE_ENABLED", 0)) and not async_op:
                     epx_sync_tensor_across_replicas(local_data_view, opts=torch.distributed.ReduceOp.AVG)
             else:
                 torch.distributed.all_reduce(
                     bucket.grad_data, op=reduce_op, group=communication_group, async_op=async_op
                 )
-                if int(os.getenv("USE_EPX", 0)) and not async_op:
+                if int(os.getenv("USE_EPX", 0)) and int(os.getenv("EPX_ELASTIC_MODE_ENABLED", 0)) and not async_op:
                     epx_sync_tensor_across_replicas(bucket.grad_data, opts=torch.distributed.ReduceOp.AVG)
 
     # print('before before allreduce')
@@ -183,16 +183,16 @@ def finish_grad_sync(self):
     self.grad_reduce_handle = None
 
     # TODO: Using `_coalescing_manager` to optimize code structure.
-    if int(os.getenv("USE_EPX", 0)):
+    if int(os.getenv("USE_EPX", 0)) and int(os.getenv("EPX_ELASTIC_MODE_ENABLED", 0)):
         for bucket in self.buckets:
             if self.ddp_config.use_distributed_optimizer:
                 local_data_view = shard_buffer(
                     bucket.grad_data, self.intra_distributed_optimizer_instance_size
                 )[self.intra_distributed_optimizer_instance_rank]
-                if int(os.getenv("USE_EPX", 0)):
+                if int(os.getenv("USE_EPX", 0)) and int(os.getenv("EPX_ELASTIC_MODE_ENABLED", 0)):
                     epx_sync_tensor_across_replicas(local_data_view, opts=torch.distributed.ReduceOp.AVG)
             else:
-                if int(os.getenv("USE_EPX", 0)):
+                if int(os.getenv("USE_EPX", 0)) and int(os.getenv("EPX_ELASTIC_MODE_ENABLED", 0)):
                     epx_sync_tensor_across_replicas(bucket.grad_data, opts=torch.distributed.ReduceOp.AVG)
 
 _ParamAndGradBucketGroup.start_grad_sync = start_grad_sync

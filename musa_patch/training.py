@@ -766,7 +766,7 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                         opt_param_scheduler,
                         config)
 
-            if int(os.getenv("USE_EPX", "0")):
+            if int(os.getenv("USE_EPX", "0")) and int(os.getenv("EPX_ELASTIC_MODE_ENABLED", 0)):
                 lcp = parallel_state.get_epx_data_parallel_lcp()
                 iteration = lcp.get_step() - 1
 

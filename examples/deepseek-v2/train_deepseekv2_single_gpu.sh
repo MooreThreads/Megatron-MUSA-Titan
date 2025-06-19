@@ -53,6 +53,8 @@ setup_epx_env() {
     export EPX_GROUP_RANK=1
 
     export USE_EPX=$USE_EPX
+    export EPX_ELASTIC_MODE_ENABLED=0
+    export EPX_FT_MODE_ENABLED=1
 
     ROOT_PATH=${ROOT_PATH:-"/root/workspace"}
     EPX_PATH=$ROOT_PATH/epx
