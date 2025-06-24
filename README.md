@@ -1,101 +1,97 @@
-# Megatron-LM-MUSA-Patch
+# Introduction
+MT-Megatron is a python patch of [Megatron-LM](https://github.com/NVIDIA/Megatron-LM). Key features include:
+
+- **Simple Cuda Compatibility**: Use [torch_musa](https://github.com/MooreThreads/torch_musa) to replace PyTorch CUDA functions with [identical APIs](https://github.com/MooreThreads/MT-MegatronLM/blob/main/musa_patch/__init__.py).
+
+- **Ready-to-Use [Training Scripts](https://github.com/MooreThreads/MT-MegatronLM/tree/main/examples)**: Provide launch traning scripts for large-scale models, such as DeepSeek, Llama, etc
+
+- **Proven Scalability & Stability**: Extensively tested on Moore Threads's large-scale GPU clusters (thousands of GPUs), ensuring high MFU and long-term reliability.
+
+- **Optimized Performance**: Enhanced with [MT-TransformerEngine](https://github.com/MooreThreads/MT-TransformerEngine) for additional acceleration, such as **fp8**, moe recompute, zero bubble, etc.
+
+- **Portable Cross-Platform Compatibility**: Requires only minor adaptations to run on other GPU backends.
 
 
-## Installation
-You can create a directory named `megatron_dev,` and use the command below to clone the `Megatron-LM`, `megatron-lm-musa-patch`, `apex`, `TransformerEngine`, `flash-attention` to the `megatron_dev`.  
-In the kuae release image, `apex`, `TransformerEngine`, `flash-attention` is already installed, you can skip the installation of three repos above.
+# Getting started
+
+## 1. Prepare the code
+
+You can create a directory named `train_dev`, and use the command below to clone the `MT-Megatron-LM`, `MT-TransformerEngine` and `Megatron-LM` to the `train_dev`.  
+
+**Note**:
+1. In this repository, we provide an [official Megatron-LM](https://github.com/NVIDIA/Megatron-LM) commit ID as a stable version. Using this version ensures stability with the [example models](https://github.com/MooreThreads/MT-MegatronLM/tree/main/examples).
+
+2. Since the official Megatron-LM evolves rapidly, we cannot maintain full development and adaptation support for every version, including the latest. Therefore, we encourage external developers to experiment with Megatron-LM’s daily main branch or newer releases for further customization. Note that MT-Megatron-LM is not limited to Moore Threads' GPUs, it also supports other GPU backends.
 
 ```bash
-# Megatron-LM
-git clone https://sh-code.mthreads.com/ai/Megatron-LM.git
-pushd Megatron-LM
-git checkout -b core_r0.9.0 core_r0.9.0
-popd
+# clone MT-Megatron-LM
+git clone https://github.com/MooreThreads/MT-MegatronLM/tree/main
 
-# megatron-lm-musa-patch
-git clone https://sh-code.mthreads.com/ai/megatron-lm-musa-patch.git
-pushd megatron-lm-musa-patch
-git fetch origin dev
-git checkout -b dev origin/dev
-popd
-
-# apex (optional)
-git clone https://sh-code.mthreads.com/ai/apex
-pushd apex
-git fetch origin feature/kuae_1.2
-git checkout -b feature/kuae_1.2 origin/feature/kuae_1.2
-pip install -v --disable-pip-version-check --no-cache-dir --no-build-isolation --config-settings "--build-option=--cpp_ext" --config-settings "--build-option=--cuda_ext" ./
-popd
-
-# TransformerEngine (optional)
-git clone https://sh-code.mthreads.com/ai/TransformerEngine.git
-pushd TransformerEngine
-git fetch origin lj_fp8
-git checkout -b lj_fp8 origin/lj_fp8
+# clone MT-TransformerEngine
+git clone https://github.com/MooreThreads/MT-TransformerEngine
+pushd MT-TransformerEngine
 bash install.sh
 popd
 
-# flash-attention (optional)
-git clone https://sh-code.mthreads.com/ai/flash-attention.git
-pushd flash-attention
-git fetch origin musa_dev
-git checkout -b musa_dev origin/musa_dev
-FLASH_ATTENTION_SKIP_CUDA_BUILD=TRUE python setup.py develop
-popd
-
+# clone Megatron-LM
+git clone https://github.com/NVIDIA/Megatron-LM
+git checkout -b dev/musa fdfcef87
 ```
 
-## Getting started
+## 2. Edit the hostfile
+In the directory of the model you want to launch, e.g., examples/deepseek-v3, create a hostfile containing the IP addresses of all GPU node participating in distributed training. The launch script will read the IPs from hostfile, establish SSH connections to each node, and finally initiate training using torchrun.
+
+```bash
+node1-ip
+node2-ip
+...
+```
+## 3. Launch Multi-Node Training
+
+### DeepSeekV2
+
+```bash
+cd examples/deepseek-v2
+bash run_deepseekv2.sh
+```
+
 ### Llama3 
 
 ```bash
-cd megatron-lm-musa-patch/examples/llama3
+cd examples/llama3
 bash dist_run_pretrain_megatron_llama3_musa.sh
 ```
 
-### Mixtral
 
-```bash
-cd megatron-lm-musa-patch/examples/mixtral
-bash dist_run_pretrain_megatron_llama3_musa.sh
-```
+# Surpported Model
 
-### Llava
+| Model List               | Availability |
+| :---                     |    :----:    |
+| Llama3                   |   &#10004;   |
+| DeepSeek-V2              |   &#10004;   |
+| DeepSeek-V3              |   &#10004;   |
+| Mixtral                  |   &#10004;   |
 
-```bash
-cd megatron-lm-musa-patch/examples/llava
+# Future Plan
+We will share our training experience on clusters with thousands of GPUs in this repo.
 
-```
+# Community
+### Issue Reporting
+If you find any problems for large model training using MT-Megatron, please open an issue.
 
-### DeepSeekV3
+### Contributions
+**Welcome any form of contribution of code, model implementation and document!**
 
-```bash
-cd megatron-lm-musa-patch/examples/deepseekv3
+### Collaboration
+Scan WeiXin QR code to join the group and discuss with us.
 
-```
-In deepseek-v2/v3, the ffn-size in first several dense layer is not the same as moe-ffn-size. So it's need to modify some codes in Megatron to support this situation while not use GroupGEMM.
-#### Modify some codes in Megatron
+# Join Our Team
+If you're passionate about:
+- Large-scale models for MoE, Reinforcement Learning, Multi-Modal
+- GPU/GPU-Cluster Training/Inference performance optimization
 
-Megatron-LM/megatron/core/transformer/mlp.py
+Feel free to reach out to yehua.zhang@mthreads.com.
 
-add in line63:  
-```
-if is_expert:
-    ffn_hidden_size = self.config.moe_ffn_hidden_size
-```
-change in line83:
-```
-            self.config.ffn_hidden_size,
--->         self.config.ffn_hidden_size if not is_expert else self.config.moe_ffn_hidden_size,
-```
+# Acknowledgements
+Initial development leveraged code from the [FlagScale](https://github.com/FlagOpen/FlagScale), acknowledgments to their team.
 
-
-Megatron-LM/megatron/core/transformer/moe/experts.py
-
-comment line757-760
-```
-        # assert (
-        #     self.config.moe_ffn_hidden_size == self.config.ffn_hidden_size
-        # ), "Please use GroupedMLP or TEGroupedMLP when moe_ffn_hidden_size is \
-        #         different from ffn_hidden_size"
-```
