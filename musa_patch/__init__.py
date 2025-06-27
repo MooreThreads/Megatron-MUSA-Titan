@@ -40,6 +40,7 @@ def patch_before_import_megatron():
         from . import token_dispatcher
 
     from . import core_pipeline_parallel_schedules
+    from . import yarn_rotary_pos_embedding
     # Disable some unsupprted features
     # set_jit_fusion_options
     def set_jit_fusion_options():
