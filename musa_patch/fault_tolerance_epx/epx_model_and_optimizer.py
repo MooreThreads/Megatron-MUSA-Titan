@@ -1,6 +1,8 @@
 import logging
 import wrapt
+import torch
 import megatron
+from megatron.core import mpu
 import megatron.core.parallel_state as parallel_state
 from megatron.training.training import setup_model_and_optimizer
 from epx.optim import epx_wrap_optimizer_instance

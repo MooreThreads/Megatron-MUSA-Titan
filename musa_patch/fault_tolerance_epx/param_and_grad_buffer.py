@@ -111,13 +111,13 @@ def start_grad_sync(self):
                 )
 
                 if int(os.getenv("USE_EPX", 0)) and not async_op:
-                    epx_sync_tensor_across_replicas(local_data_view)
+                    epx_sync_tensor_across_replicas(local_data_view, opts=torch.distributed.ReduceOp.AVG)
             else:
                 torch.distributed.all_reduce(
                     bucket.grad_data, op=reduce_op, group=communication_group, async_op=async_op
                 )
                 if int(os.getenv("USE_EPX", 0)) and not async_op:
-                    epx_sync_tensor_across_replicas(bucket.grad_data)
+                    epx_sync_tensor_across_replicas(bucket.grad_data, opts=torch.distributed.ReduceOp.AVG)
 
     # print('before before allreduce')
     # With multiple DistOpt instances, we need to all-reduce across instances.
@@ -190,10 +190,10 @@ def finish_grad_sync(self):
                     bucket.grad_data, self.intra_distributed_optimizer_instance_size
                 )[self.intra_distributed_optimizer_instance_rank]
                 if int(os.getenv("USE_EPX", 0)):
-                    epx_sync_tensor_across_replicas(local_data_view)
+                    epx_sync_tensor_across_replicas(local_data_view, opts=torch.distributed.ReduceOp.AVG)
             else:
                 if int(os.getenv("USE_EPX", 0)):
-                    epx_sync_tensor_across_replicas(bucket.grad_data)
+                    epx_sync_tensor_across_replicas(bucket.grad_data, opts=torch.distributed.ReduceOp.AVG)
 
 _ParamAndGradBucketGroup.start_grad_sync = start_grad_sync
 _ParamAndGradBucketGroup.finish_grad_sync = finish_grad_sync

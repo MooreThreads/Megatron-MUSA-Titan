@@ -1,10 +1,13 @@
 #!/bin/bash
 #
 # run without epx:
-# bash train_deepseekv2_single_gpu.sh --dataset_dir /home/workspace/llama2_dataset --data_format fp8
+# bash train_deepseekv2_single_gpu.sh --dataset_dir /root/workspace/llama2_dataset --data_format fp8
 #
 # run with epx:
+# RUST_LOG=debug, cargo run --package epx-ccp -- -p 9008
 # bash train_deepseekv2_single_gpu.sh --dataset_dir /root/workspace/llama2_dataset --data_format fp8 -u -m --ccp_port 9008
+# bash train_deepseekv2_single_gpu.sh --dataset_dir /root/workspace/llama2_dataset --data_format fp8 -u -m --ccp_port 9008 --master_port 23456 -d 2
+
 
 # 默认参数
 DATA_FORMAT="fp8"    # default fp8
@@ -19,10 +22,11 @@ usage() {
     echo "  --data_format      Set data format (default: fp8)."
     echo "  --dataset_dir      Set dataset directory(required)."
     echo "  --root_path        Set epx root path (default: /root/workspace)."
-    echo "  -d, --device_id    Set device id (default: 0)."
+    echo "  -d, --device_id    Set device id (default: 0). only for single GPU training."
     echo "  -u, --use_epx      Set use_epx (default: 0)."
     echo "  -m, --master_proc  Set current process to be master process (default: 0)."
     echo "  --master_addr      Set master_addr (default: host address)."
+    echo "  --master_port      Set master port (default: 12345)."
     echo "  --ccp_port         Set ccp_port (default: 9009)."
     echo "  --store_port       Set store_port (default: 45678)."
     echo "  -h, --help         Show this help message and exit."
@@ -80,7 +84,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -d|--device_id)
-            MUSA_VISIBLE_DEVICES="$2"
+            DEVICE_ID="$2"
             shift
             ;;
         -u|--use_epx)
@@ -91,6 +95,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --master_addr)
             MASTER_ADDR="$2"
+            shift
+            ;;
+        --master_port)
+            MASTER_PORT="$2"
             shift
             ;;
         --ccp_port)
@@ -139,13 +147,14 @@ PP_SIZE=1
 EP_SIZE=1
 WORLD_SIZE=1
 MICRO_BATCH_SIZE=1
-NUM_MICROBATCHES=32
+NUM_MICROBATCHES=1
 (( DP_SIZE = WORLD_SIZE / (TP_SIZE * PP_SIZE) ))
 (( GLOBAL_BATCH_SIZE = MICRO_BATCH_SIZE * NUM_MICROBATCHES * DP_SIZE ))
 export GPUS_PER_NODE=1
 export MOE_NUM_EXPERTS=20
 export MOE_ROUTER_GROUP_TOPK=1
-export MUSA_VISIBLE_DEVICES=${MUSA_VISIBLE_DEVICES:-0}
+export DEVICE_ID=${DEVICE_ID:-0}
+export MUSA_VISIBLE_DEVICES=${MUSA_VISIBLE_DEVICES:-"0,1,2,3,4,5,6,7"}
 
 # generate hostfile
 ip a | grep -oP 'inet \K[\d.]+' | grep -v '^127\.' | head -1 > hostfile
@@ -160,6 +169,7 @@ LOG_FILE="./output/$CURRENT_TIME/$EXPNAME.log"
 TOKENIZED_MODEL="${DATASET_DIR}/tokenizer.model"
 SCRIPT_FILE="./deepseek-v2-lite/run_pretrain_deepseekv2_musa.sh"
 RDZV_ID="$CURRENT_TIME"
+MASTER_PORT=${MASTER_PORT:-12345}
 
 # Precision-related configuration
 if [[ "$DATA_FORMAT" == "bf16" ]]; then
@@ -176,7 +186,7 @@ fi
 cmd="bash -c 'cd $WORK_HOME && \
      bash $SCRIPT_FILE $WORK_HOME $PATCH_HOME $EXPNAME $HOSTFILE \"$DATA_PATH\" \
      $TP_SIZE $PP_SIZE $EP_SIZE \
-     $MICRO_BATCH_SIZE $GLOBAL_BATCH_SIZE $TOKENIZED_MODEL $RDZV_ID'"
+     $MICRO_BATCH_SIZE $GLOBAL_BATCH_SIZE $TOKENIZED_MODEL $RDZV_ID $MASTER_PORT'"
 
 echo "=== Training Configuration ==="
 echo "Dataset dir: $DATASET_DIR"
@@ -185,9 +195,9 @@ echo "Hostfile: $(cat hostfile)"
 echo "Global batch size: $GLOBAL_BATCH_SIZE"
 echo "Command:"
 echo "$cmd"
+
 eval "$cmd" &
 EPX_PID=$!
-
 wait $EPX_PID
 
 if [ "$USE_EPX" -ne 0 ] && [ "$EPX_MASTER_PROCESS" -ne 0 ]; then

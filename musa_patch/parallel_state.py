@@ -378,8 +378,15 @@ def initialize_model_parallel(
 
         pg = EpxProcessGroup(group_name=str(epx_rank))
 
-        # rank = torch.distributed.get_rank()
-        _EPX_DATA_PARALLEL_LCP = Lcp(pg, rank)
+        device_id = int(os.getenv("DEVICE_ID", -1))
+        epx_local_rank = int(os.getenv("LOCAL_RANK", "0"))
+
+        if device_id >= 0:
+            logger.info(f"epx reset musa device to {device_id}")
+            torch.cuda.set_device(device_id)
+            epx_local_rank = device_id
+
+        _EPX_DATA_PARALLEL_LCP = Lcp(pg, rank, epx_local_rank)
 
         logger.info(f"finish initialization _EPX_DATA_PARALLEL_LCP for epx")
 
