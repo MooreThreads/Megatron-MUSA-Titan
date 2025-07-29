@@ -23,6 +23,8 @@ set +u
 # export MUSA_LAUNCH_BLOCKING=1
 # export PROFILER_PROFILE_MEMORY=1
 
+export DIST_BACKEND=${DIST_BACKEND:-'nccl'}
+
 export OMP_NUM_THREADS=4
 export MUSA_VISIBLE_DEVICES=${MUSA_VISIBLE_DEVICES:-'0,1,2,3,4,5,6,7'}
 export MUSA_KERNEL_TIMEOUT=3200000
@@ -127,7 +129,7 @@ TRAINING_ARGS=(
     --recompute-granularity full
     --recompute-method block
     --recompute-num-layers 0
-    --distributed-backend nccl
+    --distributed-backend $DIST_BACKEND
     --multi-latent-attention
     --qk-layernorm
     # --overlap-grad-reduce
