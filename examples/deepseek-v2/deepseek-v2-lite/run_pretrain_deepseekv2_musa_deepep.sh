@@ -236,8 +236,8 @@ MOE_ARGS=(
 
 TRANSFORMER_ENGINE_ARGS=(
     --transformer-impl transformer_engine
-    --fp8-format hybrid
-    --fp8-param-gather
+    # --fp8-format hybrid
+    # --fp8-param-gather
 )
 
 # --moe-z-loss-coeff 1e-3
