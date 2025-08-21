@@ -28,3 +28,6 @@ eggs/
 
 # vscode files
 .vscode/
+
+# mccl log
+.mccl*
