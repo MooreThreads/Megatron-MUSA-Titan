@@ -18,10 +18,10 @@ set -u
   WORK_HOME="$PWD"
   PATCH_HOME="$PWD"/../..
   EXPNAME="tp${TP_SIZE}_pp${PP_SIZE}_dp${DP_SIZE}_mbs${MICRO_BATCH_SIZE}_numbs${NUM_MICROBATCHES}_gbs${GLOBAL_BATCH_SIZE}_gpus${WORLD_SIZE}"
-  DATA_PATH=/home/dist/yehua/dataset/llama2_dataset/llama_00_text_document
+  DATA_PATH=/home/dist/dataset/llama2_dataset/llama_00_text_document
   HOSTFILE=./hostfile
   LOG_FILE=./output/$CURRENT_TIME/$EXPNAME.log
-  TOKENIZED_MODEL=/home/dist/yehua/dataset/llama2_dataset/tokenizer.model
+  TOKENIZED_MODEL=/home/dist/dataset/llama2_dataset/tokenizer.model
   SCRIPT_FILE=./7B/run_pretrain_llama2_musa.sh
 set +u
 

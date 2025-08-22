@@ -25,7 +25,7 @@ usage() {
     echo "  ============= Example: ============="
     echo "  $0 # run without epx"
     echo "  $0 -u --ccp_port 9008 # run with epx and set ccp_port"
-    echo "  $0 -u --master_addr 10.116.36.3 # run with epx and set master_addr"
+    echo "  $0 -u --master_addr xx.xxx.xx.xx # run with epx and set master_addr"
     echo "  $0 -h # Show this help message."
 }
 

@@ -21,11 +21,11 @@ set -u
   EXPNAME="tp${TP_SIZE}_pp${PP_SIZE}_dp${DP_SIZE}_mbs${MICRO_BATCH_SIZE}_numbs${NUM_MICROBATCHES}_gbs${GLOBAL_BATCH_SIZE}_gpus${WORLD_SIZE}"
   # DATA_PATH=/home/dist/musa_tmp_share/megatron_0.9-share-hh/data/mixtral_dataset/dedup-md5-pile-pile-cc_text_document
   # DATA_PATH=/home/dist/musa_tmp_share/dataset/deepseekv2_dataset/deepseek_train_text_document
-  DATA_PATH=/home/dist/huanghuang/dataset/deepseekv2_dataset/deepseek_train_text_document
+  DATA_PATH=/home/dist/dataset/deepseekv2_dataset/deepseek_train_text_document
   HOSTFILE=./hostfile
   LOG_FILE=./output/$CURRENT_TIME/$EXPNAME.log
   # TOKENIZED_MODEL=/home/dist/musa_tmp_share/dataset/llama3_tokenizer  
-  TOKENIZED_MODEL=/home/dist/huanghuang/dataset/deepseekv2_dataset/llama3_tokenizer
+  TOKENIZED_MODEL=/home/dist/dataset/deepseekv2_dataset/llama3_tokenizer
   SCRIPT_FILE=./deepseek-v2-lite/run_pretrain_deepseekv2_noaux_musa.sh
   RDZV_ID=$CURRENT_TIME
 set +u

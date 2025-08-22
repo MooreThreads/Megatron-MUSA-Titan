@@ -19,10 +19,10 @@ set -u
   WORK_HOME="$PWD"
   PATCH_HOME="$PWD"/../..
   EXPNAME="tp${TP_SIZE}_pp${PP_SIZE}_dp${DP_SIZE}_mbs${MICRO_BATCH_SIZE}_numbs${NUM_MICROBATCHES}_gbs${GLOBAL_BATCH_SIZE}_gpus${WORLD_SIZE}"
-  DATA_PATH=/jfs/home/huang.huang/datasets/deepseek/deepseekv2_dataset/deepseek_train_text_document
+  DATA_PATH=/jfs/home/dist/datasets/deepseek/deepseekv2_dataset/deepseek_train_text_document
   HOSTFILE=./hostfile
   LOG_FILE=./output/$CURRENT_TIME/$EXPNAME.log
-  TOKENIZED_MODEL=/home/dist/yehua/llama2_dataset/tokenizer.model
+  TOKENIZED_MODEL=/home/dist/llama2_dataset/tokenizer.model
   SCRIPT_FILE=./deepseek-v2-lite/run_pretrain_deepseekv2_lite_cuda.sh
   RDZV_ID=$CURRENT_TIME
 set +u
