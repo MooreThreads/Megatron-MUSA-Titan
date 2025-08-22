@@ -7,7 +7,7 @@ MT-Megatron is a python patch of [Megatron-LM](https://github.com/NVIDIA/Megatro
 
 - **Proven Scalability & Stability**: Extensively tested on Moore Threads's large-scale GPU clusters (thousands of GPUs), ensuring high MFU and long-term reliability.
 
-- **Optimized Performance**: Enhanced with [MT-TransformerEngine](https://github.com/MooreThreads/MT-TransformerEngine) for additional acceleration, such as **fp8**, moe recompute, zero bubble, etc.
+- **Optimized Performance**: Enhanced with [MT-TransformerEngine](https://github.com/MooreThreads/MT-TransformerEngine) for additional acceleration, such as **per block fp8**, moe recompute, zero bubble, etc.
 
 - **Portable Cross-Platform Compatibility**: Requires only minor adaptations to run on other GPU backends.
 
@@ -68,8 +68,8 @@ bash dist_run_pretrain_megatron_llama3_musa.sh
 | Model List               | Availability |
 | :---                     |    :----:    |
 | Llama3                   |   &#10004;   |
-| DeepSeek-V2              |   &#10004;   |
 | DeepSeek-V3              |   &#10004;   |
+| DeepSeek-V2              |   &#10004;   |
 | Mixtral                  |   &#10004;   |
 
 # Future Plan
@@ -82,15 +82,6 @@ If you find any problems for large model training using MT-Megatron, please open
 ### Contributions
 **Welcome any form of contribution of code, model implementation and document!**
 
-### Collaboration
-Scan WeiXin QR code to join the group and discuss with us.
-
-# Join Our Team
-If you're passionate about:
-- Large-scale models for MoE, Reinforcement Learning, Multi-Modal
-- GPU/GPU-Cluster Training/Inference performance optimization
-
-Feel free to reach out to yehua.zhang@mthreads.com.
 
 # Acknowledgements
 Initial development leveraged code from the [FlagScale](https://github.com/FlagOpen/FlagScale), acknowledgments to their team.

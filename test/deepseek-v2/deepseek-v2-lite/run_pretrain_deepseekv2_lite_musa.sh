@@ -171,7 +171,7 @@ EVAL_AND_LOGGING_ARGS=(
     --eval-interval 1 
     --save $CHECKPOINT_PATH 
     --load $CHECKPOINT_PATH 
-    # --load /home/dist/huanghuang/deepseek_dev/ckpts/pp4ep1mbs1_deepseekv2-lite_nogroupgemm_ckpt_init
+    # --load /home/dist/deepseek_dev/ckpts/pp4ep1mbs1_deepseekv2-lite_nogroupgemm_ckpt_init
     # --ckpt-format torch_dist 
     # --auto-detect-ckpt-format
     --ckpt-format torch
