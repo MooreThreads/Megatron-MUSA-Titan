@@ -1,4 +1,5 @@
 import logging
+import os
 import wrapt
 import torch
 import megatron
@@ -109,6 +110,7 @@ def setup_model_and_optimizer_wrapper(wrapped, _, args, kwargs):
 
     return model, optimizer, opt_param_scheduler
 
-wraped_setup_model_and_optimizer = setup_model_and_optimizer_wrapper(setup_model_and_optimizer)
 
-megatron.training.training.setup_model_and_optimizer = wraped_setup_model_and_optimizer
+if int(os.getenv("USE_EPX", 0)) and int(os.getenv("EPX_ELASTIC_MODE_ENABLED", 0)):
+    wraped_setup_model_and_optimizer = setup_model_and_optimizer_wrapper(setup_model_and_optimizer)
+    megatron.training.training.setup_model_and_optimizer = wraped_setup_model_and_optimizer

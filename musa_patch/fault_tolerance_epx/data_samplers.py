@@ -23,7 +23,8 @@ def build_pretraining_data_loader(dataset, consumed_samples):
         return None
     args = get_args()
 
-    if int(os.getenv("USE_EPX", 0)): # Fault tolerance sampler
+    if int(os.getenv("USE_EPX", 0)) and int(os.getenv("EPX_ELASTIC_MODE_ENABLED", 0)):
+        # Use EpxSampler if EPX elastic mode is enabled.
         from epx import EpxSampler
         import megatron.core.parallel_state as parallel_state
         lcp = parallel_state.get_epx_data_parallel_lcp()

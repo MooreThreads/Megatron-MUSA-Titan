@@ -88,7 +88,7 @@ def get_grad_norm_fp32(
             total_norm_cuda, op=torch.distributed.ReduceOp.MAX, group=grad_stats_parallel_group
         )
 
-        if int(os.getenv("USE_EPX", 0)):
+        if int(os.getenv("USE_EPX", 0)) and int(os.getenv("EPX_ELASTIC_MODE_ENABLED", 0)):
             epx_sync_tensor_across_replicas(total_norm_cuda, opts=torch.distributed.ReduceOp.MAX)
 
         total_norm = total_norm_cuda[0].item()
@@ -126,7 +126,7 @@ def get_grad_norm_fp32(
             total_norm, op=torch.distributed.ReduceOp.SUM, group=grad_stats_parallel_group
         )
 
-        if int(os.getenv("USE_EPX", 0)):
+        if int(os.getenv("USE_EPX", 0)) and int(os.getenv("EPX_ELASTIC_MODE_ENABLED", 0)):
             epx_sync_tensor_across_replicas(total_norm, opts=torch.distributed.ReduceOp.SUM, assemble=False)
 
         total_norm = total_norm.item() ** (1.0 / norm_type)

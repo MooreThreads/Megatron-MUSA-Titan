@@ -200,7 +200,7 @@ def loss_func(loss_mask: torch.Tensor, output_tensor: torch.Tensor):
     if not int(os.getenv("NO_LOSS_REDUCE", 0)): #TODO:(huang.huang) will influence the loss reported Now!
         torch.distributed.all_reduce(reporting_loss, group=mpu.get_data_parallel_group())
 
-        if int(os.getenv("USE_EPX", 0)):
+        if int(os.getenv("USE_EPX", 0)) and int(os.getenv("EPX_ELASTIC_MODE_ENABLED", 0)):
             from musa_patch.fault_tolerance_epx.epx_sync_tensor import epx_sync_tensor_across_replicas
             epx_sync_tensor_across_replicas(reporting_loss, opts=torch.distributed.ReduceOp.AVG, assemble=False)
 

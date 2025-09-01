@@ -8,8 +8,12 @@ from itertools import cycle
 from typing import Callable, List, Optional
 
 import torch
+import torch.distributed
 from megatron.core.parallel_state import *
 import megatron.core.parallel_state as parallel_state
+
+if int(os.getenv("USE_EPX", 0)) and int(os.getenv("EPX_FT_MODE_ENABLED", 0)):
+    from .fault_tolerance_epx.epx_create_group import create_epx_ftpg_auto, create_group
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +25,7 @@ group_list = {
     name: value for name, value in globals().items()
     if name.startswith("_") and not callable(value)
 }
+
 
 def initialize_model_parallel(
     tensor_model_parallel_size: int = 1,
@@ -367,7 +372,7 @@ def initialize_model_parallel(
     assert _DATA_PARALLEL_GROUP is None, 'data parallel group is already initialized'
 
     global _EPX_DATA_PARALLEL_LCP
-    if int(os.getenv("USE_EPX", 0)):
+    if int(os.getenv("USE_EPX", 0)) and int(os.getenv("EPX_ELASTIC_MODE_ENABLED", 0)):
         from epx.process_group import EpxProcessGroup
         from epx.lcp import Lcp
         import torch.distributed as dist
@@ -392,14 +397,14 @@ def initialize_model_parallel(
 
 
     for ranks in generator_wrapper('dp'):
-        group = create_group(
+        group = create_epx_ftpg_auto(
             ranks,
             timeout=timeout,
             pg_options=get_nccl_options('dp', nccl_comm_cfgs),
             group_desc='DATA_PARALLEL_GROUP',
         )
         if create_gloo_process_groups:
-            group_gloo = create_group(
+            group_gloo = create_epx_ftpg_auto(
                 ranks, timeout=timeout, backend="gloo", group_desc='DATA_PARALLEL_GROUP_GLOO'
             )
         else:
@@ -419,14 +424,14 @@ def initialize_model_parallel(
     ) // num_distributed_optimizer_instances
 
     for ranks_with_cp in generator_wrapper('dp-cp'):
-        group_with_cp = create_group(
+        group_with_cp = create_epx_ftpg_auto(
             ranks_with_cp,
             timeout=timeout,
             pg_options=get_nccl_options('dp_cp', nccl_comm_cfgs),
             group_desc='DATA_PARALLEL_GROUP_WITH_CP',
         )
         if create_gloo_process_groups:
-            group_with_cp_gloo = create_group(
+            group_with_cp_gloo = create_epx_ftpg_auto(
                 ranks_with_cp,
                 timeout=timeout,
                 backend="gloo",
@@ -818,11 +823,16 @@ def initialize_model_parallel(
 def get_epx_data_parallel_lcp():
         return parallel_state._EPX_DATA_PARALLEL_LCP
 
-# use for fault_tolerance
-# initialize_model_parallel only update to set _EPX_DATA_PARALLEL_LCP, and no other changes
-# get_epx_data_parallel_lcp used to get _EPX_DATA_PARALLEL_LCP.
-# _EPX_DATA_PARALLEL_LCP is only used in fault_tolerance
-attrs_to_register = ['initialize_model_parallel', 'get_epx_data_parallel_lcp']
+# use for epx fault_tolerance
+# 1. create_group: if backend is `none` or `nccl`, set to `mccl`.
+#    Since in epx ft mode, we have to use `ftepx` as default backend for default pg,
+#    but for non-default pg and non-cross-dp pg, we want to use `mccl` as backend.
+# 2. initialize_model_parallel:
+#    2.1 update to set _EPX_DATA_PARALLEL_LCP for epx elastic mode
+#    2.2 replace data parallel groups with fault tolerance groups for epx fault tolerant mode
+# 3. get_epx_data_parallel_lcp used to get _EPX_DATA_PARALLEL_LCP.
+#    _EPX_DATA_PARALLEL_LCP is only used in epx elastic mode only.
+attrs_to_register = ['create_group', 'initialize_model_parallel', 'get_epx_data_parallel_lcp']
 
 for k in sys.modules:
     if k.endswith('megatron.core.parallel_state'):
