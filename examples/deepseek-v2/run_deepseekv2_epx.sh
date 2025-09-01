@@ -76,6 +76,10 @@ setup_epx_env() {
     echo "EPX MASTER_ADDR: $MASTER_ADDR"
 
     export USE_EPX=1
+    export DIST_BACKEND='ftepx'
+    # EPX working mode, only one mode can be enabled at a time
+    export EPX_ELASTIC_MODE_ENABLED=0
+    export EPX_FT_MODE_ENABLED=1
     # CCP ADDR and PORT
     export EPX_CCP_ADDR="$MASTER_ADDR"
     export EPX_CCP_PORT=${EPX_CCP_PORT:-9009}
@@ -113,12 +117,14 @@ set_common_env() {
 
     export TP_SIZE=1
     export PP_SIZE=1
-    export EP_SIZE=8
+    export EP_SIZE=1
     export WORLD_SIZE=8
     export MICRO_BATCH_SIZE=1
     export NUM_MICROBATCHES=1
-    export MOE_NUM_EXPERTS=160
+    export MOE_NUM_EXPERTS=20
     export MOE_ROUTER_GROUP_TOPK=1
+
+    export MUSA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 
     export DATA_PATH=${DATA_PATH:-"$ROOT_PATH/llama2_dataset/llama_00_text_document"}
     export TOKENIZED_MODEL="$ROOT_PATH/llama2_dataset/tokenizer.model"

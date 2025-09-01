@@ -32,12 +32,12 @@ def patch_before_import_megatron():
     from . import arguments
     if int(os.getenv("USE_RECOMPUTE_VARIANCE", 0)):
         from . import recomupte_variance
-    if int(os.getenv("USE_EPX", 0)):
-        from . import fault_tolerance_epx
-        from . import parallel_state
     from . import optimizer
     if int(os.getenv("ENABLE_D2H_IN_PERMUTATION", 0)):
         from . import token_dispatcher
+    if int(os.getenv("USE_EPX", 0)):
+        from . import parallel_state
+        from . import fault_tolerance_epx
 
     from . import core_pipeline_parallel_schedules
     from . import yarn_rotary_pos_embedding
@@ -114,7 +114,7 @@ def patch_after_import_torch():
             v = kwargs["device"]
             kwargs['device'] = hook_cuda_device(v)
         return tuple(new_args), kwargs
-    
+
     # retain torch.full reference
     original_full = torch.full
     # redeine torch.zeros
