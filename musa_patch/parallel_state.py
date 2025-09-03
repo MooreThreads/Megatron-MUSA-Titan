@@ -14,6 +14,8 @@ import megatron.core.parallel_state as parallel_state
 
 if int(os.getenv("USE_EPX", 0)) and int(os.getenv("EPX_FT_MODE_ENABLED", 0)):
     from .fault_tolerance_epx.epx_create_group import create_epx_ftpg_auto, create_group
+else:
+    create_epx_ftpg_auto = parallel_state.create_group
 
 logger = logging.getLogger(__name__)
 
@@ -734,11 +736,13 @@ def initialize_model_parallel(
     global _EXPERT_MODEL_PARALLEL_GROUP
     assert _EXPERT_MODEL_PARALLEL_GROUP is None, 'Expert parallel group is already initialized'
     for ranks in generator_wrapper('ep', is_expert=True):
-        group = create_group(
+        group = create_epx_ftpg_auto(
             ranks,
+            timeout=timeout,
             pg_options=get_nccl_options('ep', nccl_comm_cfgs),
             group_desc='EXPERT_MODEL_PARALLEL_GROUP',
         )
+
         if rank in ranks:
             _EXPERT_MODEL_PARALLEL_GROUP = group
 
@@ -763,12 +767,13 @@ def initialize_model_parallel(
         _EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP is None
     ), 'Expert tensor + model parallel group is already initialized'
     for ranks in generator_wrapper('tp-ep', is_expert=True):
-        group = create_group(
+        group = create_epx_ftpg_auto(
             ranks,
             timeout=timeout,
             pg_options=get_nccl_options('tp_ep_mp', nccl_comm_cfgs),
             group_desc='EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP',
         )
+
         if rank in ranks:
             _EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP = group
 
