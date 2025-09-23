@@ -70,12 +70,13 @@ done
 setup_epx_env() {
 
     HOST_ADDR=$(ip addr show bond0 | grep -oP 'inet \K[\d.]+' | head -1)
-    MASTER_ADDR=${MASER_ADDR:-$HOST_ADDR} # set master addr default to host addr
+    MASTER_ADDR=${MASTER_ADDR:-$HOST_ADDR} # set master addr default to host addr
 
     echo "EPX HOST_ADDR: $HOST_ADDR"
     echo "EPX MASTER_ADDR: $MASTER_ADDR"
 
     export USE_EPX=1
+    # Enabled when EPX_FT_MODE_ENABLED=1 to make default process group backend be ftepx
     export DIST_BACKEND='ftepx'
     # EPX working mode, only one mode can be enabled at a time
     export EPX_ELASTIC_MODE_ENABLED=0

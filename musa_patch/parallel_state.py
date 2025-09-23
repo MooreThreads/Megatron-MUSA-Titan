@@ -12,7 +12,8 @@ import torch.distributed
 from megatron.core.parallel_state import *
 import megatron.core.parallel_state as parallel_state
 
-if int(os.getenv("USE_EPX", 0)) and int(os.getenv("EPX_FT_MODE_ENABLED", 0)):
+if int(os.getenv("USE_EPX", 0)) \
+    and (int(os.getenv("EPX_FT_MODE_ENABLED", 0)) or int(os.getenv("EPX_FTE_MODE_ENABLED", 0))):
     from .fault_tolerance_epx.epx_create_group import create_epx_ftpg_auto, create_group
 else:
     create_epx_ftpg_auto = parallel_state.create_group
@@ -736,12 +737,20 @@ def initialize_model_parallel(
     global _EXPERT_MODEL_PARALLEL_GROUP
     assert _EXPERT_MODEL_PARALLEL_GROUP is None, 'Expert parallel group is already initialized'
     for ranks in generator_wrapper('ep', is_expert=True):
-        group = create_epx_ftpg_auto(
-            ranks,
-            timeout=timeout,
-            pg_options=get_nccl_options('ep', nccl_comm_cfgs),
-            group_desc='EXPERT_MODEL_PARALLEL_GROUP',
-        )
+        if int(os.getenv("USE_EPX", 0)) and int(os.getenv("EPX_FT_MODE_ENABLED", 0)):
+            group = create_epx_ftpg_auto(
+                ranks,
+                timeout=timeout,
+                pg_options=get_nccl_options('ep', nccl_comm_cfgs),
+                group_desc='EXPERT_MODEL_PARALLEL_GROUP',
+            )
+        else:
+            group = create_group(
+                ranks,
+                timeout=timeout,
+                pg_options=get_nccl_options('ep', nccl_comm_cfgs),
+                group_desc='EXPERT_MODEL_PARALLEL_GROUP',
+            )
 
         if rank in ranks:
             _EXPERT_MODEL_PARALLEL_GROUP = group
@@ -767,12 +776,20 @@ def initialize_model_parallel(
         _EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP is None
     ), 'Expert tensor + model parallel group is already initialized'
     for ranks in generator_wrapper('tp-ep', is_expert=True):
-        group = create_epx_ftpg_auto(
-            ranks,
-            timeout=timeout,
-            pg_options=get_nccl_options('tp_ep_mp', nccl_comm_cfgs),
-            group_desc='EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP',
-        )
+        if int(os.getenv("USE_EPX", 0)) and int(os.getenv("EPX_FT_MODE_ENABLED", 0)):
+            group = create_epx_ftpg_auto(
+                ranks,
+                timeout=timeout,
+                pg_options=get_nccl_options('tp_ep_mp', nccl_comm_cfgs),
+                group_desc='EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP',
+            )
+        else:
+            group = create_group(
+                ranks,
+                timeout=timeout,
+                pg_options=get_nccl_options('tp_ep_mp', nccl_comm_cfgs),
+                group_desc='EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP',
+            )
 
         if rank in ranks:
             _EXPERT_TENSOR_AND_MODEL_PARALLEL_GROUP = group
@@ -799,16 +816,36 @@ def initialize_model_parallel(
     assert _EXPERT_DATA_PARALLEL_GROUP_GLOO is None, 'Expert data group-gloo is already initialized'
 
     for ranks in generator_wrapper('dp', is_expert=True):
-        group = create_group(
-            ranks,
-            timeout=timeout,
-            pg_options=get_nccl_options('ep_dp', nccl_comm_cfgs),
-            group_desc='EXPERT_DATA_PARALLEL_GROUP',
-        )
-        if create_gloo_process_groups:
-            group_gloo = create_group(
-                ranks, backend="gloo", group_desc='EXPERT_DATA_PARALLEL_GROUP_GLOO'
+        # Skip creating the expert data parallel group if the current rank does not 
+        # belong to any expert data parallel group.
+        if rank not in ranks:
+            continue
+
+        if int(os.getenv("USE_EPX", 0)) \
+            and (int(os.getenv("EPX_FT_MODE_ENABLED", 0)) or int(os.getenv("EPX_FTE_MODE_ENABLED", 0))):
+            group = create_epx_ftpg_auto(
+                ranks,
+                timeout=timeout,
+                pg_options=get_nccl_options('ep_dp', nccl_comm_cfgs),
+                group_desc='EXPERT_DATA_PARALLEL_GROUP',
             )
+        else:
+            group = create_group(
+                ranks,
+                timeout=timeout,
+                pg_options=get_nccl_options('ep_dp', nccl_comm_cfgs),
+                group_desc='EXPERT_DATA_PARALLEL_GROUP',
+            )
+        if create_gloo_process_groups:
+            if int(os.getenv("USE_EPX", 0)) \
+                and (int(os.getenv("EPX_FT_MODE_ENABLED", 0)) or int(os.getenv("EPX_FTE_MODE_ENABLED", 0))):
+                group_gloo = create_epx_ftpg_auto(
+                    ranks, timeout=timeout, backend="gloo", group_desc='EXPERT_DATA_PARALLEL_GROUP_GLOO'
+                )
+            else:
+                group_gloo = create_group(
+                    ranks, backend="gloo", group_desc='EXPERT_DATA_PARALLEL_GROUP_GLOO'
+                )
         else:
             group_gloo = None
         if rank in ranks:

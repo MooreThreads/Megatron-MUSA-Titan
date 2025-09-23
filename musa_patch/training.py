@@ -764,6 +764,14 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
             update_num_microbatches(args.consumed_train_samples, consistency_check=True, verbose=True)
 
             args.curr_iteration = iteration
+
+            if int(os.getenv("USE_EPX", "0")) and int(os.getenv("EPX_FTE_MODE_ENABLED", 0)):
+                from epx.replica_assembler import get_global_replica_assembler
+                replica_assembler = get_global_replica_assembler()
+                if replica_assembler is None:
+                    raise RuntimeError("Global ReplicaAssembler is not created yet.")
+                replica_assembler.assemble()
+
             loss_dict, skipped_iter, should_checkpoint, should_exit, exit_code, grad_norm, num_zeros_in_grad = \
                 train_step(forward_step_func,
                         train_data_iterator,
