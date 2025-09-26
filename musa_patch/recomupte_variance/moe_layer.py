@@ -13,6 +13,7 @@ from megatron.core.fusions.fused_bias_swiglu import bias_swiglu_impl
 
 from transformer_engine.pytorch.distributed import checkpoint, checkpointVirance
 from megatron.core.transformer.moe.shared_experts import SharedExpertMLP
+from megatron.core.extensions.transformer_engine import te_checkpoint
 
 # HACK(huang.huang): recompute/variance for experts in moe with fp8/bf16: 
 # support mlp_rms_recompute which combine rms, sharedEXP and gating into one checkpoint;
@@ -37,6 +38,8 @@ def MoELayer_forward(self, hidden_states: torch.Tensor, norm_func=None):
     
     # process MoE
     def custom_forward(hidden_states):
+
+        residual = hidden_states
         
         if norm_func is not None:
             assert self.config.mlp_rms_recompute
@@ -89,10 +92,17 @@ def MoELayer_forward(self, hidden_states: torch.Tensor, norm_func=None):
             probs, routing_map = self.router.routing(logits)
         else:
             probs, routing_map = self.router(hidden_states)
-        (dispatched_input, tokens_per_expert) = self.token_dispatcher.token_permutation(
-            hidden_states, probs, routing_map
+
+        hidden_states, probs = self.token_dispatcher.dispatch_preprocess(
+            hidden_states, routing_map, probs
         )
-        custom_expert_forward = partial(self.experts, tokens_per_expert=tokens_per_expert)
+        dispatched_input, probs = self.dispatch(hidden_states, probs)
+
+        dispatched_input, tokens_per_expert, permuted_probs = (
+            self.token_dispatcher.dispatch_postprocess(dispatched_input, probs)
+        )
+
+        custom_expert_forward = partial(self.experts, dispatched_input=dispatched_input, tokens_per_expert=tokens_per_expert, permuted_probs=permuted_probs)
 
         def _custom_func_first(permuted_local_hidden_states, tokens_per_expert):
             #forward for linear1 and act in self.experts
@@ -141,7 +151,7 @@ def MoELayer_forward(self, hidden_states: torch.Tensor, norm_func=None):
                     intermediate_parallel = self.experts.activation_func(intermediate_parallel)
             return intermediate_parallel, tokens_per_expert
 
-        custom_func_first = partial(_custom_func_first, tokens_per_expert=tokens_per_expert) 
+        custom_func_first = partial(_custom_func_first, tokens_per_expert=tokens_per_expert)
 
 
         if self.config.mlp_recompute:
@@ -171,22 +181,40 @@ def MoELayer_forward(self, hidden_states: torch.Tensor, norm_func=None):
                     expert_output, mlp_bias = tensor_parallel.checkpoint(
                         custom_expert_forward, False, dispatched_input)
         else:
-            expert_output, mlp_bias = self.experts(dispatched_input, tokens_per_expert)
+            expert_output, mlp_bias = self.experts(dispatched_input, tokens_per_expert, permuted_probs)
 
-        output, mlp_bias = self.token_dispatcher.token_unpermutation(expert_output, mlp_bias)
+        # output, mlp_bias = self.token_dispatcher.token_unpermutation(expert_output, mlp_bias)
+        output = self.token_dispatcher.combine_preprocess(expert_output)
+        output = self.token_dispatcher.token_combine(output)
+        output = self.token_dispatcher.combine_postprocess(output)
+
         if norm_func is not None:
             #self.shared_experts called in the begining of custom_forward, which is convenient for rms recmopute 
             output = output + shared_output
         elif self.use_shared_expert and not self.shared_expert_overlap:
             # if shared_expert_overlap is True, the expert calculation happens in
             # the token_dispatcher to overlap communications and computations
-            output = output + self.shared_experts(hidden_states)
+            output = output + self.shared_experts(residual)
         return output, mlp_bias
 
     if self.moe_layer_recompute:
         output, mlp_bias = tensor_parallel.checkpoint(custom_forward, False, hidden_states)
     else:
         output, mlp_bias = custom_forward(hidden_states)
+
+    # if self.moe_layer_recompute:
+    #     if self.config.fp8:
+    #         output, mlp_bias = te_checkpoint(
+    #             custom_forward,
+    #             False,
+    #             tensor_parallel.random.get_cuda_rng_tracker,
+    #             parallel_state.get_tensor_model_parallel_group(),
+    #             hidden_states,
+    #         )
+    #     else:
+    #         output, mlp_bias = tensor_parallel.checkpoint(custom_forward, False, hidden_states)
+    # else:
+    #     output, mlp_bias = custom_forward(hidden_states)
 
     return output, mlp_bias
 ## HACK(huang.huang)

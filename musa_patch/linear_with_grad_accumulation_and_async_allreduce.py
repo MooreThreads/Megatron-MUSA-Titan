@@ -39,24 +39,32 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
         sequence_parallel,
         grad_output_buffer,
         wgrad_deferral_limit,
-    ):  
+        tp_group,
+    ):
+        """Forward."""
+        if gradient_accumulation_fusion and hasattr(weight, "main_grad"):
+            main_grad = weight.main_grad
+        else:
+            main_grad = None
         ctx.save_for_backward(input, weight)
+        # We can't save main_grad in save_for_backward as this module would be
+        # reused across layers like MTP logits. So, to prevent in-place modification
+        # checks we save the tensor in ctx.
+        ctx.main_grad = main_grad
         ctx.use_bias = bias is not None
         ctx.gradient_accumulation_fusion = gradient_accumulation_fusion
         ctx.allreduce_dgrad = allreduce_dgrad
         ctx.sequence_parallel = sequence_parallel
         ctx.wgrad_deferral_limit = wgrad_deferral_limit
         ctx.grad_output_buffer = grad_output_buffer
+        ctx.tp_group = tp_group
 
         if sequence_parallel:
-            world_size = get_tensor_model_parallel_world_size()
             dim_size = list(input.size())
-            dim_size[0] = dim_size[0] * world_size
+            dim_size[0] = dim_size[0] * tp_group.size()
 
             all_gather_buffer = get_global_memory_buffer().get_tensor(dim_size, input.dtype, "mpu")
-            torch.distributed._all_gather_base(
-                all_gather_buffer, input, group=get_tensor_model_parallel_group()
-            )
+            torch.distributed._all_gather_base(all_gather_buffer, input, group=tp_group)
             total_input = all_gather_buffer
         else:
             total_input = input
@@ -181,7 +189,7 @@ class LinearWithGradAccumulationAndAsyncCommunication(torch.autograd.Function):
 
         if ctx.allreduce_dgrad:
             handle.wait()
-        return grad_input, grad_weight, grad_bias, None, None, None, None, None
+        return grad_input, grad_weight, grad_bias, None, None, None, None, None, None
 
 
 import megatron.core.tensor_parallel.layers

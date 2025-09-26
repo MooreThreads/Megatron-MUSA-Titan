@@ -15,7 +15,7 @@ def TransformerLayer_forward(
     rotary_pos_cos=None,
     rotary_pos_sin=None,
     attention_bias=None,
-    inference_params=None,
+    inference_context=None,
     packed_seq_params=None,
     sequence_len_offset=None,
 ):
@@ -33,7 +33,7 @@ def TransformerLayer_forward(
         context_mask (Tensor, optional): Mask tensor for cross-attention.
         rotary_pos_emb (Tensor, optional): Rotary positional embeddings.
         attention_bias (Tensor, optional): Bias tensor for Q * K.T.
-        inference_params (object, optional): Parameters for inference-time optimizations.
+        inference_context (object, optional): Parameters for inference-time optimizations.
         packed_seq_params (object, optional): Parameters for packed sequence processing.
 
     Returns:
@@ -94,7 +94,7 @@ def TransformerLayer_forward(
         attention_output_with_bias = self.self_attention(
             input_layernorm_output,
             attention_mask=attention_mask,
-            inference_params=inference_params,
+            inference_context=inference_context,
             rotary_pos_emb=rotary_pos_emb,
             rotary_pos_cos=rotary_pos_cos,
             rotary_pos_sin=rotary_pos_sin,
@@ -111,7 +111,7 @@ def TransformerLayer_forward(
         attention_output_with_bias = self.self_attention(
             input_layernorm_output,
             attention_mask=attention_mask,
-            inference_params=inference_params,
+            inference_context=inference_context,
             rotary_pos_emb=rotary_pos_emb,
             rotary_pos_cos=rotary_pos_cos,
             rotary_pos_sin=rotary_pos_sin,
@@ -139,7 +139,7 @@ def TransformerLayer_forward(
         pre_cross_attn_layernorm_output,
         attention_mask=context_mask,
         key_value_states=context,
-        inference_params=inference_params,
+        inference_context=inference_context,
     )
 
     if isinstance(attention_output_with_bias, dict) and "context" in attention_output_with_bias:

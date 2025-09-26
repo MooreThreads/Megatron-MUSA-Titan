@@ -1,4 +1,5 @@
 from datetime import datetime
+import dataclasses
 
 import gc
 import os
@@ -6,7 +7,7 @@ import sys
 import logging
 import torch
 import torch.distributed
-from megatron.core import mpu
+from megatron.core import mpu, tensor_parallel
 
 from megatron.core.transformer.moe.moe_utils import track_moe_metrics
 from megatron.core.transformer.moe.router import TopKRouter
@@ -28,12 +29,25 @@ from megatron.core.rerun_state_machine import (
 )
 from megatron.core.utils import (
     check_param_hashes_across_dp_replicas,
+    get_model_config,
 )
+from megatron.core.fp8_utils import correct_amax_history_if_needed
+from megatron.core.enums import ModelType
 from megatron.training.theoretical_memory_usage import report_theoretical_memory
 from megatron.training import one_logger_utils
 from megatron.training.initialize import write_args_to_tensorboard
 from megatron.core.distributed import finalize_model_grads
 from megatron.core.distributed import DistributedDataParallel as DDP
+from megatron.core.distributed.custom_fsdp import FullyShardedDataParallel as custom_FSDP
+from megatron.core.transformer.module import Float16Module
+from megatron.core.distributed import DistributedDataParallelConfig, TorchFullyShardedDataParallelConfig
+
+try:
+    from megatron.core.distributed import TorchFullyShardedDataParallel as torch_FSDP
+
+    HAVE_FSDP2 = True
+except ImportError:
+    HAVE_FSDP2 = False
 
 from megatron.training.training import (
     print_datetime,
@@ -483,7 +497,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
             )
     if args.num_experts is not None:
         moe_loss_scale = 1 / get_num_microbatches()
-        track_moe_metrics(moe_loss_scale, iteration, writer, wandb_writer, total_loss_dict, args.moe_per_layer_logging)
+        track_moe_metrics(moe_loss_scale, iteration, writer, wandb_writer, total_loss_dict, args.moe_per_layer_logging, moe_layer_freq=args.moe_layer_freq)
 
     if iteration % args.log_interval == 0:
         # HACK(huang.huang): support memory analysis dump

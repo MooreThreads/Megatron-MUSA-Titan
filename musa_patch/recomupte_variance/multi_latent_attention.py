@@ -64,7 +64,7 @@ def MLASelfAttention_forward(
     hidden_states,
     attention_mask,
     key_value_states=None,
-    inference_params=None,
+    inference_context=None,
     rotary_pos_emb=None,
     rotary_pos_cos=None,
     rotary_pos_sin=None,
@@ -81,7 +81,7 @@ def MLASelfAttention_forward(
             hidden_states,
             attention_mask,
             key_value_states,
-            inference_params,
+            inference_context,
             rotary_pos_emb,
             rotary_pos_cos,
             rotary_pos_sin,
@@ -127,7 +127,7 @@ def MLASelfAttention_forward(
         key_value_states=None,
         position_ids=None,
         packed_seq_params=None,
-        inference_params=None,
+        inference_context=None,
     ):
         q_len, bsz, _ = q_compressed.size()
 
@@ -170,9 +170,9 @@ def MLASelfAttention_forward(
             mscale = rotary_pos_emb[1]
             rotary_pos_emb = rotary_pos_emb[0]
 
-        if inference_params is not None:
+        if inference_context is not None:
             # add offset to the sequence start for inference
-            sequence_start = inference_params.sequence_len_offset
+            sequence_start = inference_context.sequence_len_offset
             sequence_end = sequence_start + q_len
             rotary_pos_emb = rotary_pos_emb[sequence_start:sequence_end]
 
@@ -210,8 +210,8 @@ def MLASelfAttention_forward(
         key = key.contiguous()
         value = value.contiguous()    
 
-        query, key, value, _, attn_mask_type = self._adjust_key_value_for_inference(
-        inference_params, query, key, value, rotary_pos_emb=None
+        query, key, value, _, attn_mask_type, _ = self._adjust_key_value_for_inference(
+        inference_context, query, key, value, rotary_pos_emb=None
         )    
         return query, key, value, attention_mask, \
             {"attn_mask_type":attn_mask_type, "attention_bias":attention_bias, "packed_seq_params":packed_seq_params}
@@ -222,17 +222,17 @@ def MLASelfAttention_forward(
         key_value_states=None,
         position_ids=None,
         packed_seq_params=None,
-        inference_params=None,
+        inference_context=None,
         ):
         
-        query, key, value, attention_mask, kwargs = _custom_forward_before_attention(q_compressed, kv_combined, key_value_states, position_ids, packed_seq_params,inference_params)
+        query, key, value, attention_mask, kwargs = _custom_forward_before_attention(q_compressed, kv_combined, key_value_states, position_ids, packed_seq_params,inference_context)
         core_attn_out = self.core_attention(query, key, value, attention_mask, **kwargs)
         return core_attn_out       
 
     custom_forward_self_attention = partial(
         _custom_forward_self_attention,
         key_value_states=key_value_states,
-        inference_params=inference_params,
+        inference_context=inference_context,
         position_ids=position_ids,
         packed_seq_params=packed_seq_params,
     )
@@ -241,7 +241,7 @@ def MLASelfAttention_forward(
     custom_forward_before_attention = partial(
         _custom_forward_before_attention,
         key_value_states=key_value_states,
-        inference_params=inference_params,
+        inference_context=inference_context,
         position_ids=position_ids,
         packed_seq_params=packed_seq_params,
     )
