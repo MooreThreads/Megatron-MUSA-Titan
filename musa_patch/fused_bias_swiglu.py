@@ -4,15 +4,20 @@ import torch.nn.functional as F
 
 class MusaSwiGLUFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input, fp8_input_store):
-        ctx.save_for_backward(input)
+    def forward(ctx, input, fp8_input_store, cpu_offload_input):
+        input_for_backward = input.to(torch.float8_e4m3fn) if fp8_input_store else input
+        if cpu_offload_input:
+            input_for_backward.activation_offloading = True
+        ctx.save_for_backward(input_for_backward)
+        ctx.ori_input_dtype = input.dtype
         ctx.fp8_input_store = fp8_input_store
         return torch.ops.aten._fused_swiglu_forward(input)
 
     @staticmethod
     def backward(ctx, grad_output):
-        (input, ) = ctx.saved_tensors
-        return torch.ops.aten._fused_swiglu_backward(grad_output, input), None
+        input = ctx.saved_tensors[0]
+        input = input.to(ctx.ori_input_dtype) if ctx.fp8_input_store else input
+        return torch.ops.aten._fused_swiglu_backward(grad_output, input), None, None
 
 
 import megatron.core.fusions.fused_bias_swiglu

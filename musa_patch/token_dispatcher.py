@@ -4,16 +4,23 @@ from typing import List, Optional, Tuple
 
 import torch
 
+from megatron.core.config import is_experimental_enabled
+from megatron.core.fp8_utils import get_fp8_align_size
+from megatron.core.fusions.fused_indices_converter import fused_indices_to_multihot
+from megatron.core.fusions.fused_pad_routing_map import fused_pad_routing_map
 from megatron.core.tensor_parallel import (
     all_to_all,
     gather_from_sequence_parallel_region,
     reduce_scatter_to_sequence_parallel_region,
 )
 from megatron.core.transformer.moe.moe_utils import (
+    ModelCommProcessGroups,
     get_capacity,
+    pad_routing_map,
     permute,
     sort_chunks_by_idxs,
     unpermute,
+    maybe_move_tensor_to_cpu,
 )
 from megatron.core.transformer.transformer_config import TransformerConfig
 
@@ -23,8 +30,6 @@ from megatron.core.transformer.transformer_config import TransformerConfig
 #   function update: __init__, preprocess, token_permutation, token_unpermutation
 #       __init__: extra opration after ori_init
 #           a. copy sort_input_by_local_experts and restore_output_by_local_experts to cpu, prevent redunt D2H in each Forward
-#           b. add self.cuda_dtoh_stream to support async copy
-#           c. follow Megatron:main, add cuda_sync_point_priority and cuda_dtoh_point to manage sync point
 #       preprocess:
 #           a. remove D2H such as .cpu() and do it in token_permutation as once
 #           b. use new method to manage sync point
@@ -45,32 +50,17 @@ from megatron.core.transformer.transformer_config import TransformerConfig
 #           b. in self.cuda_sync_point, do cuda_dtoh_stream.synchronize(), .numpy, tolist where synchronize needs to be done before
 #           .numpy and tolist, otherwise D2H maybe not be finished. 
 def MoEAlltoAllTokenDispatcher___init__(
-    self, num_local_experts: int, local_expert_indices: List[int], config: TransformerConfig
+    self,
+    num_local_experts: int,
+    local_expert_indices: List[int],
+    config: TransformerConfig,
+    model_comm_pgs: Optional[ModelCommProcessGroups] = None,
 ) -> None:
-    self._orig___init__(num_local_experts, local_expert_indices, config)
+    self._orig___init__(num_local_experts, local_expert_indices, config, model_comm_pgs)
     
     self.sort_input_by_local_experts = self.sort_input_by_local_experts.cpu().numpy()
     self.restore_output_by_local_experts = self.restore_output_by_local_experts.cpu().numpy()
-    self.cuda_sync_point_priority = {
-        "before_permutation_1": 0,
-        "before_ep_alltoall": 1,
-        "before_permutation_2": 2,
-        "before_finish": 3,
-        "no_sync": 4,
-    }
-    self.cuda_dtoh_point = "before_permutation_1"
-    self.cuda_dtoh_stream = torch.cuda.Stream()
 
-def MoEAlltoAllTokenDispatcher__maybe_update_cuda_sync_point(self, point: str):
-    """
-    Update the CUDA sync point if the priority of the new point is higher than the current
-    sync point, which means the new point is reached earlier than the current sync point.
-    """
-    if (
-        self.cuda_sync_point_priority[point]
-        < self.cuda_sync_point_priority[self.cuda_sync_point]
-    ):
-        self.cuda_sync_point = point
 
 def MoEAlltoAllTokenDispatcher__ensure_cpu_tensor(self, cpu_attr_name, gpu_tensor):
     if gpu_tensor is None:
@@ -177,6 +167,7 @@ def MoEAlltoAllTokenDispatcher_preprocess(self, routing_map: torch.Tensor) -> to
             device=self.permute_idx_device,
         )
         return num_tokens_per_local_expert
+
     elif self.config.moe_expert_capacity_factor is not None:
         # Drop tokens to capacity, no padding.
         # A synchronization is needed before the first
@@ -259,28 +250,21 @@ def MoEAlltoAllTokenDispatcher_preprocess(self, routing_map: torch.Tensor) -> to
 
     return num_tokens_per_local_expert
 
+def MoEAlltoAllTokenDispatcher_dispatch_preprocess(
+    self, hidden_states: torch.Tensor, routing_map: torch.Tensor, probs: torch.Tensor
+):
+    """Prepares hidden states and probabilities for dispatch.
 
-def MoEAlltoAllTokenDispatcher_token_permutation(
-    self, hidden_states: torch.Tensor, probs: torch.Tensor, routing_map: torch.Tensor
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Dispatch tokens to local experts using AlltoAll communication.
-
-    This method performs the following steps:
-    1. Preprocess the routing map to get metadata for communication and permutation.
-    2. Permute input tokens for AlltoAll communication.
-    3. Perform expert parallel AlltoAll communication.
-    4. Sort tokens by local expert (if multiple local experts exist).
+    This method reshapes the hidden states, computes communication metadata,
+    and permutes the tokens and probabilities before the All-to-All communication.
 
     Args:
         hidden_states (torch.Tensor): Input token embeddings.
-        probs (torch.Tensor): The probabilities of token to experts assignment.
-        routing_map (torch.Tensor): The mapping of token to experts assignment.
+        routing_map (torch.Tensor): The mapping of tokens to experts.
+        probs (torch.Tensor): Routing probabilities.
 
     Returns:
-        Tuple[torch.Tensor, torch.Tensor]:
-            - Permuted token embeddings for local experts.
-            - Number of tokens per expert.
+        A tuple of permuted hidden states and probabilities.
     """
     # Preprocess: Get the metadata for communication, permutation and computation operations.
     self.hidden_shape = hidden_states.shape
@@ -290,39 +274,86 @@ def MoEAlltoAllTokenDispatcher_token_permutation(
     assert routing_map.dim() == 2, "Expected 2D tensor for token2expert mask"
     assert routing_map.dtype == torch.bool, "Expected bool tensor for mask"
     hidden_states = hidden_states.view(-1, self.hidden_shape[-1])
-    tokens_per_expert = self.preprocess(self.routing_map)
+
+    if self.config.moe_router_padding_for_fp8:
+        pad_multiple = get_fp8_align_size(self.config.fp8_recipe)
+        if is_experimental_enabled() and self.config.moe_permute_fusion:
+            self.routing_map = fused_pad_routing_map(self.routing_map, pad_multiple)
+        else:
+            self.routing_map = pad_routing_map(self.routing_map, pad_multiple)
+
+    self.tokens_per_expert = self.preprocess(self.routing_map)
 
     if self.shared_experts is not None:
         self.shared_experts.pre_forward_comm(hidden_states.view(self.hidden_shape))
 
-    # Permutation 1: input to AlltoAll input
-    self.hidden_shape_before_permute = hidden_states.shape
-
     #GPU operations that data depended on need to be performed before the d2h command
-    num_global_tokens_per_local_expert = self.num_global_tokens_per_local_expert.ravel()
-    num_global_tokens_per_local_expert_T = self.num_global_tokens_per_local_expert.T.ravel()
+    self.num_global_tokens_per_local_expert_ravel = self.num_global_tokens_per_local_expert.ravel()
+    self.num_global_tokens_per_local_expert_T_ravel = self.num_global_tokens_per_local_expert.T.ravel()
 
     # Permutation 1: input to AlltoAll input
-    tokens_per_expert = self._maybe_dtoh_and_synchronize(
-        "before_permutation_1", tokens_per_expert,
-        num_global_tokens_per_local_expert, num_global_tokens_per_local_expert_T
+    self.tokens_per_expert = self._maybe_dtoh_and_synchronize(
+        "before_permutation_1", self.tokens_per_expert,
+        self.num_global_tokens_per_local_expert_ravel, self.num_global_tokens_per_local_expert_T_ravel
     )
-    permutated_local_input_tokens, self.reversed_local_input_permutation_mapping = permute(
+    self.hidden_shape_before_permute = hidden_states.shape
+    (
+        permutated_local_input_tokens,
+        permuted_probs,
+        self.reversed_local_input_permutation_mapping,
+    ) = permute(
         hidden_states,
-        routing_map,
+        self.routing_map,
+        probs=probs,
         num_out_tokens=self.num_out_tokens,
         fused=self.config.moe_permute_fusion,
         drop_and_pad=self.drop_and_pad,
     )
-    # Perform expert parallel AlltoAll communication
-    tokens_per_expert = self._maybe_dtoh_and_synchronize(
-        "before_ep_alltoall", tokens_per_expert,
-        num_global_tokens_per_local_expert, num_global_tokens_per_local_expert_T
-    )
+    return permutated_local_input_tokens, permuted_probs
 
+def MoEAlltoAllTokenDispatcher_token_dispatch(self, permutated_local_input_tokens, permuted_probs):
+    """
+    Perform all-to-all communication for dispatching tokens.
+
+    This method performs the all-to-all communication step to dispatch tokens across
+    expert parallel ranks. It synchronizes metadata at the appropriate point before
+    performing the communication.
+
+    Args:
+        permutated_local_input_tokens (torch.Tensor): Pre-permuted input tokens.
+        permuted_probs (torch.Tensor): Pre-permuted probabilities.
+
+    Returns:
+        A tuple of tokens and probabilities after All-to-All.
+    """
+    #GPU operations that data depended on need to be performed before the d2h command
+    # Perform expert parallel AlltoAll communication
+    self.tokens_per_expert = self._maybe_dtoh_and_synchronize(
+        "before_ep_alltoall", self.tokens_per_expert,
+        self.num_global_tokens_per_local_expert_ravel, self.num_global_tokens_per_local_expert_T_ravel
+    )
     global_input_tokens = all_to_all(
         self.ep_group, permutated_local_input_tokens, self.output_splits, self.input_splits
     )
+    global_probs = all_to_all(
+        self.ep_group, permuted_probs, self.output_splits, self.input_splits
+    )
+
+    return global_input_tokens, global_probs
+
+def MoEAlltoAllTokenDispatcher_dispatch_postprocess(self, global_input_tokens, global_probs):
+    """Post-processes tokens after All-to-All communication.
+
+    This involves an All-Gather in the tensor parallel dimension and sorting
+    tokens by expert if there are multiple local experts.
+
+    Args:
+        global_input_tokens (torch.Tensor): Tokens after All-to-All.
+        global_probs (torch.Tensor): Probabilities after All-to-All.
+
+    Returns:
+        A tuple of processed tokens, token counts per expert, and processed probabilities.
+    """
     if self.shared_experts is not None:
         self.shared_experts.linear_fc1_forward_and_act(global_input_tokens)
 
@@ -334,11 +365,16 @@ def MoEAlltoAllTokenDispatcher_token_permutation(
         global_input_tokens = gather_from_sequence_parallel_region(
             global_input_tokens, group=self.tp_group, output_split_sizes=output_split_sizes
         )
+        global_probs = gather_from_sequence_parallel_region(
+            global_probs, group=self.tp_group, output_split_sizes=output_split_sizes
+        )
+
+    #GPU operations that data depended on need to be performed before the d2h command
 
     # Permutation 2: Sort tokens by local expert.
-    tokens_per_expert = self._maybe_dtoh_and_synchronize(
-        "before_permutation_2", tokens_per_expert,
-        num_global_tokens_per_local_expert, num_global_tokens_per_local_expert_T
+    self.tokens_per_expert = self._maybe_dtoh_and_synchronize(
+        "before_permutation_2", self.tokens_per_expert,
+        self.num_global_tokens_per_local_expert_ravel, self.num_global_tokens_per_local_expert_T_ravel
     )
     if self.num_local_experts > 1:
         if self.drop_and_pad:
@@ -353,43 +389,231 @@ def MoEAlltoAllTokenDispatcher_token_permutation(
                 .contiguous()
                 .flatten(start_dim=0, end_dim=2)
             )
+            global_probs = (
+                global_probs.view(
+                    self.tp_size * self.ep_size,
+                    self.num_local_experts,
+                    self.capacity,
+                    *global_probs.size()[1:],
+                )
+                .transpose(0, 1)
+                .contiguous()
+                .flatten(start_dim=0, end_dim=2)
+            )
         else:
-            global_input_tokens = sort_chunks_by_idxs(
+            global_input_tokens, global_probs = sort_chunks_by_idxs(
                 global_input_tokens,
-                self.num_global_tokens_per_local_expert,
+                self.num_global_tokens_per_local_expert_ravel,
                 self.sort_input_by_local_experts,
-                fused=self.config.moe_permute_fusion,
+                probs=global_probs,
+                fused=False,
             )
 
     tokens_per_expert = self._maybe_dtoh_and_synchronize(
-        "before_finish", tokens_per_expert,
-        num_global_tokens_per_local_expert, num_global_tokens_per_local_expert_T
+        "before_finish", self.tokens_per_expert,
+        self.num_global_tokens_per_local_expert_ravel, self.num_global_tokens_per_local_expert_T_ravel
     )
-    return global_input_tokens, tokens_per_expert
+    self.tokens_per_expert = None
+    return global_input_tokens, tokens_per_expert, global_probs
 
 
-def MoEAlltoAllTokenDispatcher_token_unpermutation(
-    self, hidden_states: torch.Tensor, bias: Optional[torch.Tensor] = None
-) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+# def MoEAlltoAllTokenDispatcher_token_permutation(
+#     self, hidden_states: torch.Tensor, probs: torch.Tensor, routing_map: torch.Tensor
+# ) -> Tuple[torch.Tensor, torch.Tensor]:
+#     """
+#     Dispatch tokens to local experts using AlltoAll communication.
+
+#     This method performs the following steps:
+#     1. Preprocess the routing map to get metadata for communication and permutation.
+#     2. Permute input tokens for AlltoAll communication.
+#     3. Perform expert parallel AlltoAll communication.
+#     4. Sort tokens by local expert (if multiple local experts exist).
+
+#     Args:
+#         hidden_states (torch.Tensor): Input token embeddings.
+#         probs (torch.Tensor): The probabilities of token to experts assignment.
+#         routing_map (torch.Tensor): The mapping of token to experts assignment.
+
+#     Returns:
+#         Tuple[torch.Tensor, torch.Tensor]:
+#             - Permuted token embeddings for local experts.
+#             - Number of tokens per expert.
+#     """
+#     # Preprocess: Get the metadata for communication, permutation and computation operations.
+#     self.hidden_shape = hidden_states.shape
+#     self.probs = probs
+#     self.routing_map = routing_map
+#     assert probs.dim() == 2, "Expected 2D tensor for probs"
+#     assert routing_map.dim() == 2, "Expected 2D tensor for token2expert mask"
+#     assert routing_map.dtype == torch.bool, "Expected bool tensor for mask"
+#     hidden_states = hidden_states.view(-1, self.hidden_shape[-1])
+#     tokens_per_expert = self.preprocess(self.routing_map)
+
+#     if self.shared_experts is not None:
+#         self.shared_experts.pre_forward_comm(hidden_states.view(self.hidden_shape))
+
+#     # Permutation 1: input to AlltoAll input
+#     self.hidden_shape_before_permute = hidden_states.shape
+
+#     #GPU operations that data depended on need to be performed before the d2h command
+#     num_global_tokens_per_local_expert = self.num_global_tokens_per_local_expert.ravel()
+#     num_global_tokens_per_local_expert_T = self.num_global_tokens_per_local_expert.T.ravel()
+
+#     # Permutation 1: input to AlltoAll input
+#     tokens_per_expert = self._maybe_dtoh_and_synchronize(
+#         "before_permutation_1", tokens_per_expert,
+#         num_global_tokens_per_local_expert, num_global_tokens_per_local_expert_T
+#     )
+#     permutated_local_input_tokens, self.reversed_local_input_permutation_mapping = permute(
+#         hidden_states,
+#         routing_map,
+#         num_out_tokens=self.num_out_tokens,
+#         fused=self.config.moe_permute_fusion,
+#         drop_and_pad=self.drop_and_pad,
+#     )
+#     # Perform expert parallel AlltoAll communication
+#     tokens_per_expert = self._maybe_dtoh_and_synchronize(
+#         "before_ep_alltoall", tokens_per_expert,
+#         num_global_tokens_per_local_expert, num_global_tokens_per_local_expert_T
+#     )
+
+#     global_input_tokens = all_to_all(
+#         self.ep_group, permutated_local_input_tokens, self.output_splits, self.input_splits
+#     )
+#     if self.shared_experts is not None:
+#         self.shared_experts.linear_fc1_forward_and_act(global_input_tokens)
+
+#     if self.tp_size > 1:
+#         if self.output_splits_tp is None:
+#             output_split_sizes = None
+#         else:
+#             output_split_sizes = self.output_splits_tp.tolist()
+#         global_input_tokens = gather_from_sequence_parallel_region(
+#             global_input_tokens, group=self.tp_group, output_split_sizes=output_split_sizes
+#         )
+
+#     # Permutation 2: Sort tokens by local expert.
+#     tokens_per_expert = self._maybe_dtoh_and_synchronize(
+#         "before_permutation_2", tokens_per_expert,
+#         num_global_tokens_per_local_expert, num_global_tokens_per_local_expert_T
+#     )
+#     if self.num_local_experts > 1:
+#         if self.drop_and_pad:
+#             global_input_tokens = (
+#                 global_input_tokens.view(
+#                     self.tp_size * self.ep_size,
+#                     self.num_local_experts,
+#                     self.capacity,
+#                     *global_input_tokens.size()[1:],
+#                 )
+#                 .transpose(0, 1)
+#                 .contiguous()
+#                 .flatten(start_dim=0, end_dim=2)
+#             )
+#         else:
+#             global_input_tokens = sort_chunks_by_idxs(
+#                 global_input_tokens,
+#                 self.num_global_tokens_per_local_expert,
+#                 self.sort_input_by_local_experts,
+#                 fused=self.config.moe_permute_fusion,
+#             )
+
+#     tokens_per_expert = self._maybe_dtoh_and_synchronize(
+#         "before_finish", tokens_per_expert,
+#         num_global_tokens_per_local_expert, num_global_tokens_per_local_expert_T
+#     )
+#     return global_input_tokens, tokens_per_expert
+
+
+# def MoEAlltoAllTokenDispatcher_token_unpermutation(
+#     self, hidden_states: torch.Tensor, bias: Optional[torch.Tensor] = None
+# ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+#     """
+#     Reverse the token permutation to restore the original order.
+
+#     This method performs the following steps:
+#     1. Unsort tokens by local expert (if multiple local experts exist).
+#     2. Perform expert parallel AlltoAll communication to restore the original order.
+#     3. Unpermute tokens to restore the original order.
+
+#     Args:
+#         hidden_states (torch.Tensor): Output from local experts.
+#         bias (torch.Tensor, optional): Bias tensor (not supported).
+
+#     Returns:
+#         Tuple[torch.Tensor, Optional[torch.Tensor]]:
+#             - Unpermuted token embeddings in the original order.
+#             - None (bias is not supported).
+#     """
+#     assert bias is None, "Bias is not supported in MoEAlltoAllTokenDispatcher"
+
+#     # Unpermutation 2: Unsort tokens by local expert.
+#     if self.num_local_experts > 1:
+#         if self.drop_and_pad:
+#             hidden_states = (
+#                 hidden_states.view(
+#                     self.num_local_experts,
+#                     self.tp_size * self.ep_size,
+#                     self.capacity,
+#                     *hidden_states.size()[1:],
+#                 )
+#                 .transpose(0, 1)
+#                 .contiguous()
+#                 .flatten(start_dim=0, end_dim=2)
+#             )
+#         else:
+#             hidden_states = sort_chunks_by_idxs(
+#                 hidden_states,
+#                 self.num_global_tokens_per_local_expert_T,
+#                 self.restore_output_by_local_experts,
+#                 fused=self.config.moe_permute_fusion,
+#             )
+
+#     if self.tp_size > 1:
+#         if self.output_splits_tp is None:
+#             input_split_sizes = None
+#         else:
+#             input_split_sizes = self.output_splits_tp.tolist()
+#         hidden_states = reduce_scatter_to_sequence_parallel_region(
+#             hidden_states, group=self.tp_group, input_split_sizes=input_split_sizes
+#         )
+
+#     # Perform expert parallel AlltoAll communication
+#     # hidden_states: [SEQL, H] -> [SEQL, H/TP]
+#     permutated_local_input_tokens = all_to_all(
+#         self.ep_group, hidden_states, self.input_splits, self.output_splits
+#     )
+#     if self.shared_experts is not None:
+#         self.shared_experts.linear_fc2_forward(permutated_local_input_tokens)
+#         self.shared_experts.post_forward_comm()
+
+#     # Unpermutation 1: AlltoAll output to output
+#     output = unpermute(
+#         permutated_local_input_tokens,
+#         self.reversed_local_input_permutation_mapping,
+#         restore_shape=self.hidden_shape_before_permute,
+#         probs=self.probs,
+#         routing_map=self.routing_map,
+#         fused=self.config.moe_permute_fusion,
+#         drop_and_pad=self.drop_and_pad,
+#     )
+
+#     # Reshape the output tensor
+#     output = output.view(self.hidden_shape)
+
+#     # Add shared experts output
+#     if self.shared_experts is not None:
+#         shared_expert_output = self.shared_experts.get_output()
+#         output += shared_expert_output
+#     return output, None
+# ##HACK(huang.huang)
+
+def MoEAlltoAllTokenDispatcher_combine_preprocess(self, hidden_states):
+    """Prepares hidden states for token combination after expert computations.
+
+    This may involve un-sorting tokens and a Reduce-Scatter in the tensor
+    parallel dimension.
     """
-    Reverse the token permutation to restore the original order.
-
-    This method performs the following steps:
-    1. Unsort tokens by local expert (if multiple local experts exist).
-    2. Perform expert parallel AlltoAll communication to restore the original order.
-    3. Unpermute tokens to restore the original order.
-
-    Args:
-        hidden_states (torch.Tensor): Output from local experts.
-        bias (torch.Tensor, optional): Bias tensor (not supported).
-
-    Returns:
-        Tuple[torch.Tensor, Optional[torch.Tensor]]:
-            - Unpermuted token embeddings in the original order.
-            - None (bias is not supported).
-    """
-    assert bias is None, "Bias is not supported in MoEAlltoAllTokenDispatcher"
-
     # Unpermutation 2: Unsort tokens by local expert.
     if self.num_local_experts > 1:
         if self.drop_and_pad:
@@ -405,11 +629,11 @@ def MoEAlltoAllTokenDispatcher_token_unpermutation(
                 .flatten(start_dim=0, end_dim=2)
             )
         else:
-            hidden_states = sort_chunks_by_idxs(
+            hidden_states, _ = sort_chunks_by_idxs(
                 hidden_states,
-                self.num_global_tokens_per_local_expert_T,
+                self.num_global_tokens_per_local_expert_ravel,
                 self.restore_output_by_local_experts,
-                fused=self.config.moe_permute_fusion,
+                fused=False,
             )
 
     if self.tp_size > 1:
@@ -418,14 +642,26 @@ def MoEAlltoAllTokenDispatcher_token_unpermutation(
         else:
             input_split_sizes = self.output_splits_tp.tolist()
         hidden_states = reduce_scatter_to_sequence_parallel_region(
-            hidden_states, group=self.tp_group, input_split_sizes=input_split_sizes
-        )
+            hidden_states.to(self.probs.dtype),
+            group=self.tp_group,
+            input_split_sizes=input_split_sizes,
+        ).to(hidden_states.dtype)
 
-    # Perform expert parallel AlltoAll communication
-    # hidden_states: [SEQL, H] -> [SEQL, H/TP]
-    permutated_local_input_tokens = all_to_all(
-        self.ep_group, hidden_states, self.input_splits, self.output_splits
-    )
+    return hidden_states
+
+def MoEAlltoAllTokenDispatcher_combine_postprocess(self, permutated_local_input_tokens):
+    """Finalizes token reconstruction with un-permutation and reshaping.
+
+    This method un-permutes the tokens back to their original order,
+    reshapes the tensor to its original shape, and adds the shared
+    expert output if enabled.
+
+    Args:
+        permutated_local_input_tokens (torch.Tensor): Permuted hidden states from token combine.
+
+    Returns:
+        The final MoE layer output reshaped to its original dimensions.
+    """
     if self.shared_experts is not None:
         self.shared_experts.linear_fc2_forward(permutated_local_input_tokens)
         self.shared_experts.post_forward_comm()
@@ -435,7 +671,8 @@ def MoEAlltoAllTokenDispatcher_token_unpermutation(
         permutated_local_input_tokens,
         self.reversed_local_input_permutation_mapping,
         restore_shape=self.hidden_shape_before_permute,
-        probs=self.probs,
+        # Probs already applied, so reset to 1.
+        probs=torch.ones_like(self.probs),
         routing_map=self.routing_map,
         fused=self.config.moe_permute_fusion,
         drop_and_pad=self.drop_and_pad,
@@ -448,15 +685,16 @@ def MoEAlltoAllTokenDispatcher_token_unpermutation(
     if self.shared_experts is not None:
         shared_expert_output = self.shared_experts.get_output()
         output += shared_expert_output
-    return output, None
-##HACK(huang.huang)
+    return output
 
 from transformer_engine.musa.pytorch.utils import replace_attr, add_attr
 from megatron.core.transformer.moe.token_dispatcher import MoEAlltoAllTokenDispatcher
-replace_attr(MoEAlltoAllTokenDispatcher, '__init__', MoEAlltoAllTokenDispatcher___init__)
-add_attr(MoEAlltoAllTokenDispatcher, '_maybe_update_cuda_sync_point', MoEAlltoAllTokenDispatcher__maybe_update_cuda_sync_point)
-add_attr(MoEAlltoAllTokenDispatcher, '_ensure_cpu_tensor', MoEAlltoAllTokenDispatcher__ensure_cpu_tensor)
-add_attr(MoEAlltoAllTokenDispatcher, '_maybe_dtoh_and_synchronize', MoEAlltoAllTokenDispatcher__maybe_dtoh_and_synchronize)
-replace_attr(MoEAlltoAllTokenDispatcher, 'preprocess', MoEAlltoAllTokenDispatcher_preprocess)
-replace_attr(MoEAlltoAllTokenDispatcher, 'token_permutation', MoEAlltoAllTokenDispatcher_token_permutation)
-replace_attr(MoEAlltoAllTokenDispatcher, 'token_unpermutation', MoEAlltoAllTokenDispatcher_token_unpermutation)
+# replace_attr(MoEAlltoAllTokenDispatcher, '__init__', MoEAlltoAllTokenDispatcher___init__)
+# add_attr(MoEAlltoAllTokenDispatcher, '_ensure_cpu_tensor', MoEAlltoAllTokenDispatcher__ensure_cpu_tensor)
+# add_attr(MoEAlltoAllTokenDispatcher, '_maybe_dtoh_and_synchronize', MoEAlltoAllTokenDispatcher__maybe_dtoh_and_synchronize)
+# replace_attr(MoEAlltoAllTokenDispatcher, 'preprocess', MoEAlltoAllTokenDispatcher_preprocess)
+# replace_attr(MoEAlltoAllTokenDispatcher, 'dispatch_postprocess', MoEAlltoAllTokenDispatcher_dispatch_postprocess)
+# replace_attr(MoEAlltoAllTokenDispatcher, 'token_dispatch', MoEAlltoAllTokenDispatcher_token_dispatch)
+# replace_attr(MoEAlltoAllTokenDispatcher, 'dispatch_preprocess', MoEAlltoAllTokenDispatcher_dispatch_preprocess)
+replace_attr(MoEAlltoAllTokenDispatcher, 'combine_postprocess', MoEAlltoAllTokenDispatcher_combine_postprocess)
+# replace_attr(MoEAlltoAllTokenDispatcher, 'combine_preprocess', MoEAlltoAllTokenDispatcher_combine_preprocess)

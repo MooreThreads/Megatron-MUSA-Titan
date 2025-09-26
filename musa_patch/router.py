@@ -28,14 +28,11 @@ def seq_aux_loss_load_balancing(self, logits: torch.Tensor, bsz: int, seq_length
         )
 
     if self.training:
-        if self.score_function == "sigmoid":
-            scores = torch.sigmoid(logits)
-        else: 
-            scores = torch.softmax(logits, dim=-1, dtype=torch.float32)
+        scores, loss_routing_map = self.compute_routing_scores_for_aux_loss(logits)
         aux_loss_func = partial(
             sequence_load_balancing_loss_func,
             probs=scores,
-            routing_map=routing_map,
+            routing_map=loss_routing_map,
             batch_size=bsz,
             seq_length=seq_length,
             topk=self.topk,
