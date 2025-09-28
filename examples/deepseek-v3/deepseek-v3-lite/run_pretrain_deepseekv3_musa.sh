@@ -19,7 +19,7 @@ set -u
   RDZV_ID=${12}
 set +u
 export ENABLE_PROFILER=0
-# export PROFILER_FREQ=4
+export PROFILER_FREQ=4
 # export MUSA_LAUNCH_BLOCKING=1
 export OMP_NUM_THREADS=4
 export MUSA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
@@ -32,6 +32,11 @@ export MCCL_IB_GID_INDEX=3
 export MUSA_BLOCK_SCHEDULE_MODE=1
 export MCCL_ALGOS=1
 export MCCL_BUFFSIZE=20480000
+
+export USE_RECOMPUTE_VARIANCE=1
+export ENABLE_D2H_IN_PERMUTATION=0
+export NO_LOSS_REDUCE=0
+export USE_MUSA_MOE=1
 
 MEGATRON_PATH=${PATCH_HOME}/../Megatron-LM
 export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
@@ -63,6 +68,7 @@ export MASTER_ADDR=$(head -n1 $HOSTFILE | awk '{print $1;}')
 export NODE_RANK=$(awk -v node_addr="$NODE_ADDR" '{ranks[$1]=(FNR-1);} END {print ranks[node_addr];}' $HOSTFILE)
 export MASTER_PORT=12356
 # export MUSA_LAUNCH_BLOCKING=1
+# export MCCL_DEBUG=INFO
 
 DISTRIBUTED_ARGS=(
     --nproc_per_node $GPUS_PER_NODE 
@@ -91,6 +97,7 @@ MODEL_ARGS=(
     --swiglu 
     --normalization RMSNorm
     --untie-embeddings-and-output-weights
+    # --rope-type yarn
 )
 
 # 24414062 1T
@@ -107,9 +114,9 @@ TRAINING_ARGS=(
     --use-distributed-optimizer 
     --use-flash-attn 
     --sequence-parallel 
-    --recompute-granularity full 
-    --recompute-method block 
-    --recompute-num-layers 1
+    # --recompute-granularity full 
+    # --recompute-method block 
+    # --recompute-num-layers 1
     --distributed-backend nccl
     --multi-latent-attention
     --qk-layernorm
@@ -176,25 +183,30 @@ MOE_ARGS=(
     --num-experts 256
     --expert-model-parallel-size $EP_SIZE
     --moe-token-dispatcher-type alltoall
-    --moe-router-topk-limited-devices 4
-    --moe-router-num-node-group 8 #in fact, should be ep/8
-    --moe-noaux-gamma 1e-2 #1e-3
+    --moe-router-num-groups 8
+    --moe-router-group-topk 4
+    # --moe-noaux-gamma 1e-2 #1e-3
     --moe-router-load-balancing-type seq_aux_loss
     --moe-complementary-seq-aux-loss
     --moe-router-topk 8
     --moe-router-pre-softmax #deepseek use pre-softmax
-    --moe-router-use-sigmoid #deepseek use sigmoid
+    --moe-router-score-function sigmoid #deepseek use sigmoid
     --moe-router-norm-topk-prob #norm topk prob with sigmoid
     --moe-router-topk-scaling-factor 2.5 # pre-softmax need scaling
     --moe-aux-loss-coeff 3e-3
     --moe-ffn-hidden-size 2048
     --moe-shared-expert-intermediate-size 2048
-    # --moe-layer-freq "([0]*1+[1]*1)*1"
-    # --moe-grouped-gemm
+    --moe-layer-freq "([1]*1)"
+    --moe-grouped-gemm
+    --moe-router-enable-expert-bias
+    # --overlap-moe-expert-parallel-comm
+    # --moe-permute-fusion
 )
 
 TRANSFORMER_ENGINE_ARGS=(
     --transformer-impl transformer_engine
+    --fp8-format hybrid
+    --fp8-param-gather
 )
     
 MULTI_TOKEN_PREDICTION_ARGS=(
@@ -215,7 +227,8 @@ cmd="torchrun ${DISTRIBUTED_ARGS[@]} $WORK_HOME/pretrain_deepseekv2.py \
         ${MLA_ARGS[@]} \
         ${EVAL_AND_LOGGING_ARGS[@]} \
         ${TRANSFORMER_ENGINE_ARGS[@]} \
-        ${MULTI_TOKEN_PREDICTION_ARGS[@]}
     "
 echo $cmd
 $cmd
+
+# msys profile -t musa --gpu-metrics-set=1 -o S5000-dsv3-cpu-offload-buffer --device 0 

@@ -166,21 +166,21 @@ def loss_func(loss_mask: torch.Tensor, output_tensor: Union[torch.Tensor, tuple]
             the data parallel ranks
     """
     args = get_args()
-    if args.use_multi_token_prediction:
-        output_tensor, mtp_losses = output_tensor
-        mtp_loss_masked = []
-        for mtp_depth, mtp_loss in enumerate(mtp_losses):
-            cur_mask = loss_mask.clone()
-            cur_mask[:, :mtp_depth + 1] = 0
-            mtp_loss_masked.append(loss_mask * mtp_loss)
-        mtp_loss_masked = torch.sum(torch.concat(mtp_loss_masked, dim=1).float())
+    # if args.use_multi_token_prediction:
+    #     output_tensor, mtp_losses = output_tensor
+    #     mtp_loss_masked = []
+    #     for mtp_depth, mtp_loss in enumerate(mtp_losses):
+    #         cur_mask = loss_mask.clone()
+    #         cur_mask[:, :mtp_depth + 1] = 0
+    #         mtp_loss_masked.append(loss_mask * mtp_loss)
+    #     mtp_loss_masked = torch.sum(torch.concat(mtp_loss_masked, dim=1).float())
     losses = output_tensor.float()
     loss_mask = loss_mask.view(-1).float()
     total_tokens = loss_mask.sum()
-    if args.use_multi_token_prediction:
-        loss = torch.cat([torch.sum(losses.view(-1) * loss_mask).view(1) + args.mtp_coeff * mtp_loss_masked, total_tokens.view(1)])
-    else:    
-        loss = torch.cat([torch.sum(losses.view(-1) * loss_mask).view(1), total_tokens.view(1)])
+    # if args.use_multi_token_prediction:
+    #     loss = torch.cat([torch.sum(losses.view(-1) * loss_mask).view(1) + args.mtp_coeff * mtp_loss_masked, total_tokens.view(1)])
+    # else:    
+    loss = torch.cat([torch.sum(losses.view(-1) * loss_mask).view(1), total_tokens.view(1)])
 
     if args.context_parallel_size > 1:
         torch.distributed.all_reduce(loss, group=mpu.get_context_parallel_group())
