@@ -96,13 +96,22 @@ def apply_rotary_pos_emb_thd(
     ).squeeze(1)
     
 def apply_rotary_pos_emb(
-    t: Tensor, freqs: Tensor, config: TransformerConfig, cu_seqlens: Optional[Tensor] = None, mscale: float = 1.0,
+    t: Tensor,
+    freqs: Tensor,
+    config: TransformerConfig,
+    cu_seqlens: Optional[Tensor] = None,
+    mscale: float = 1.0,
+    cp_group: torch.distributed.ProcessGroup = None,
 ):
 
     """
     Reroute to the appropriate apply_rotary_pos_emb function depending on
     fused/unfused kernels, or bshd (conventional) / thd (packed seq) format
     """
+
+    if cp_group is None:
+        cp_group = parallel_state.get_context_parallel_group()
+
     # assert cu_seqlens is None, "Only support cu_seqlens is None for now!"
     if config.apply_rope_fusion and not HAVE_APPLY_ROPE_FUSION:
         # setting apply_rope_fusion in config to False so that subsequent queries to this config also return False

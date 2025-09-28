@@ -116,6 +116,7 @@ TRAINING_ARGS=(
     # --q-rms-recompute
     --attn-recompute
     --recompute-variance
+    --enable-experimental
 )
 
 MLA_ARGS=(
