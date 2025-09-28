@@ -7,10 +7,9 @@ import sys
 import logging
 import torch
 import torch.distributed
-from megatron.core import mpu, tensor_parallel
+from megatron.core import mpu
 
 from megatron.core.transformer.moe.moe_utils import track_moe_metrics
-from megatron.core.transformer.moe.router import TopKRouter
 from megatron.training.global_vars import (
     get_args,
     get_timers,
@@ -27,27 +26,13 @@ from megatron.training.utils import (
 from megatron.core.rerun_state_machine import (
     get_rerun_state_machine,
 )
-from megatron.core.utils import (
-    check_param_hashes_across_dp_replicas,
-    get_model_config,
-)
-from megatron.core.fp8_utils import correct_amax_history_if_needed
-from megatron.core.enums import ModelType
+from megatron.core.utils import check_param_hashes_across_dp_replicas
+
 from megatron.training.theoretical_memory_usage import report_theoretical_memory
 from megatron.training import one_logger_utils
 from megatron.training.initialize import write_args_to_tensorboard
 from megatron.core.distributed import finalize_model_grads
 from megatron.core.distributed import DistributedDataParallel as DDP
-from megatron.core.distributed.custom_fsdp import FullyShardedDataParallel as custom_FSDP
-from megatron.core.transformer.module import Float16Module
-from megatron.core.distributed import DistributedDataParallelConfig, TorchFullyShardedDataParallelConfig
-
-try:
-    from megatron.core.distributed import TorchFullyShardedDataParallel as torch_FSDP
-
-    HAVE_FSDP2 = True
-except ImportError:
-    HAVE_FSDP2 = False
 
 from megatron.training.training import (
     print_datetime,
@@ -156,6 +141,13 @@ def num_floating_point_operations(args, batch_size):
         if args.moe_shared_expert_intermediate_size is None
         else args.moe_shared_expert_intermediate_size
     )
+
+    moe_ffn_hidden_size = (
+        args.moe_ffn_hidden_size
+        if args.moe_ffn_hidden_size is not None
+        else args.ffn_hidden_size
+    )
+
     if not args.multi_latent_attention:
         return (
             12
@@ -175,7 +167,7 @@ def num_floating_point_operations(args, batch_size):
                 )
                 # MLP.
                 + (
-                    (args.moe_ffn_hidden_size / args.hidden_size)
+                    (moe_ffn_hidden_size / args.hidden_size)
                     * num_experts_routed_to
                     * gated_linear_multiplier
                 )
