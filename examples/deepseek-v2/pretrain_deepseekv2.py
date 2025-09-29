@@ -110,6 +110,11 @@ def model_provider(pre_process=True, post_process=True) -> Union[GPTModel, megat
 
                 build_model_context = fp8_model_init
                 build_model_context_args["enabled"] = True
+                if args.fp8_recipe == 'mxfp8':
+                    from transformer_engine.common.recipe import MXFP8BlockScaling, Format
+                    recipe = MXFP8BlockScaling()
+                    recipe.fp8_format = Format.E4M3
+                    build_model_context_args["recipe"] = recipe
 
                 # Check if fp8_model_init supports preserve_high_precision_init_val
                 if "preserve_high_precision_init_val" in inspect.signature(fp8_model_init).parameters:
