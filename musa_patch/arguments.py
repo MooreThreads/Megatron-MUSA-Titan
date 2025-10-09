@@ -3,7 +3,7 @@ import torch
 import torch.nn.functional as F
 
 import megatron.training.arguments
-from megatron.training.activations import squared_relu
+from megatron.core.activations import squared_relu
 from megatron.core.transformer.transformer_config import TransformerConfig, MLATransformerConfig
 moe_freq_type = megatron.training.arguments.moe_freq_type
 
@@ -120,6 +120,9 @@ def _add_moe_args(parser):
     group.add_argument('--moe-apply-probs-on-input', action='store_true',
                        help='Apply probs before mlp activation for moe routing.')
     # MoE communication overlap arguments
+    group.add_argument('--overlap-moe-expert-parallel-comm', action='store_true',
+                       help='Overlap the EP A2A communication by batch-level overlapping in 1f1b stage.')
+
     group.add_argument('--delay-wgrad-compute', action='store_true',
                        help='Delay the wgrad compute for batch-level overlapping')
     group.add_argument('--moe-upcycling-granularity', type=int, default=1,

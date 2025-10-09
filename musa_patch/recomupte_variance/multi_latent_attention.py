@@ -68,6 +68,7 @@ def MLASelfAttention_forward(
     rotary_pos_emb=None,
     rotary_pos_cos=None,
     rotary_pos_sin=None,
+    rotary_pos_cos_sin=None,
     attention_bias=None,
     packed_seq_params=None,
     position_ids=None,
@@ -85,6 +86,7 @@ def MLASelfAttention_forward(
             rotary_pos_emb,
             rotary_pos_cos,
             rotary_pos_sin,
+            rotary_pos_cos_sin,
             attention_bias,
             packed_seq_params,
             position_ids,
@@ -97,6 +99,10 @@ def MLASelfAttention_forward(
     assert (
         rotary_pos_cos is None and rotary_pos_sin is None
     ), "MLA does not support Flash Decoding"
+    assert not rotary_pos_cos_sin, "Flash-infer rope has not been tested with MLA."
+    assert not (
+        self.training and self.cache_mla_latents
+    ), "cache_mla_latents conflicts with training."
 
     # hidden_states: [sq, b, h]
 
@@ -164,7 +170,7 @@ def MLASelfAttention_forward(
         k_no_pe, value = torch.split(kv, [self.config.qk_head_dim, self.config.v_head_dim], dim=-1)
 
         # rotary_pos_emb:[s, b, 1, 64]
-        rotary_pos_emb = self.rotary_pos_emb(max_seq_len=self.config.max_position_embeddings)
+        rotary_pos_emb = self.rotary_pos_emb(max_seq_len=self.config.original_max_position_embeddings)
 
         if len(rotary_pos_emb) == 2:
             mscale = rotary_pos_emb[1]

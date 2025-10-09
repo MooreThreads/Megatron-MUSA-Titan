@@ -97,7 +97,7 @@ MODEL_ARGS=(
     --swiglu 
     --normalization RMSNorm
     --untie-embeddings-and-output-weights
-    # --rope-type yarn
+    --rope-type yarn
 )
 
 # 24414062 1T

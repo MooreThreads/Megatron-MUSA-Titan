@@ -14,7 +14,7 @@ from megatron.core.tensor_parallel import (
     reduce_scatter_to_sequence_parallel_region,
 )
 from megatron.core.transformer.moe.moe_utils import (
-    ModelCommProcessGroups,
+    ProcessGroupCollection,
     get_capacity,
     pad_routing_map,
     permute,
@@ -54,9 +54,9 @@ def MoEAlltoAllTokenDispatcher___init__(
     num_local_experts: int,
     local_expert_indices: List[int],
     config: TransformerConfig,
-    model_comm_pgs: Optional[ModelCommProcessGroups] = None,
+    pg_collection: Optional[ProcessGroupCollection] = None,
 ) -> None:
-    self._orig___init__(num_local_experts, local_expert_indices, config, model_comm_pgs)
+    self._orig___init__(num_local_experts, local_expert_indices, config, pg_collection)
     
     self.sort_input_by_local_experts = self.sort_input_by_local_experts.cpu().numpy()
     self.restore_output_by_local_experts = self.restore_output_by_local_experts.cpu().numpy()
