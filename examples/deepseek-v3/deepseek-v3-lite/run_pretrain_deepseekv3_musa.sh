@@ -189,7 +189,6 @@ MOE_ARGS=(
     --moe-router-load-balancing-type seq_aux_loss
     --moe-complementary-seq-aux-loss
     --moe-router-topk 8
-    --moe-router-pre-softmax #deepseek use pre-softmax
     --moe-router-score-function sigmoid #deepseek use sigmoid
     --moe-router-norm-topk-prob #norm topk prob with sigmoid
     --moe-router-topk-scaling-factor 2.5 # pre-softmax need scaling
@@ -199,14 +198,19 @@ MOE_ARGS=(
     --moe-layer-freq "([1]*1)"
     --moe-grouped-gemm
     --moe-router-enable-expert-bias
+    --moe-router-enable-expert-bias
+    --moe-router-bias-update-rate 1e-3
+    --moe-router-dtype fp32
+    --moe-aux-loss-coeff 1e-4
     # --overlap-moe-expert-parallel-comm
     # --moe-permute-fusion
 )
 
 TRANSFORMER_ENGINE_ARGS=(
     --transformer-impl transformer_engine
-    --fp8-format hybrid
+    --fp8-format e4m3
     --fp8-param-gather
+    --fp8-recipe mxfp8
 )
     
 MULTI_TOKEN_PREDICTION_ARGS=(
@@ -215,7 +219,7 @@ MULTI_TOKEN_PREDICTION_ARGS=(
     --mtp-depth 1
 )
 
-cmd="torchrun ${DISTRIBUTED_ARGS[@]} $WORK_HOME/pretrain_deepseekv2.py \
+cmd="torchrun ${DISTRIBUTED_ARGS[@]} $WORK_HOME/pretrain_deepseekv3.py \
         ${MODEL_ARGS[@]} \
         ${TRAINING_ARGS[@]} \
         ${REGULARIZATION_ARGS[@]}
