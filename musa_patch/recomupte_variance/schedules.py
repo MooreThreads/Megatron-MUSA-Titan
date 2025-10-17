@@ -114,7 +114,7 @@ def forward_step_calc_loss(
     return output_tensor, num_tokens
 
 
-def backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, config):
+def backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, config, pipeline_model_parallel_size=1,):
     """Backward step through passed-in output tensor.
 
     If last stage, output_tensor_grad is None, otherwise gradient of loss
