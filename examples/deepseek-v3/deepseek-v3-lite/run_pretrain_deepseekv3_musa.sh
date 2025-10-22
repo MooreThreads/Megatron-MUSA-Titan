@@ -76,7 +76,7 @@ DISTRIBUTED_ARGS=(
     --node_rank $NODE_RANK 
     --master_addr $MASTER_ADDR 
     --master_port $MASTER_PORT
-    --log_dir $WORK_HOME/output_log/$RDZV_ID/$EXPNAME
+    --log_dir $WORK_HOME/output_log/$RDZV_ID/$EXPNAME/$NODE_RANK
     --redirects 3
 )
 
