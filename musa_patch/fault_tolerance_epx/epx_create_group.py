@@ -7,8 +7,20 @@ import torch
 from torch._C._distributed_c10d import _DistributedBackendOptions, PrefixStore
 import megatron.core.parallel_state as parallel_state
 
+import epx.process_group.ftpg as ftpg
+
 
 origin_create_group = parallel_state.create_group
+
+
+# All FTPG groups created globally
+_ALL_FTPG_GROUPS: List[ftpg.FaultTolerantProcessGroup] = []
+
+def initialize_all_groups():
+    global _ALL_FTPG_GROUPS
+    for group in _ALL_FTPG_GROUPS:
+        group.reconfigure()
+
 
 def create_global_replica_assembler_once(
     rank_in_replica: int,
@@ -59,8 +71,6 @@ def create_epx_ftpg_exhanced_mode(ranks, timeout, backend, group_desc):
     # replica parallel size: total number of replicas
     replica_parallel_size = int(os.environ.get('EPX_REPLICA_PARALLEL_SIZE', 1))
 
-    import epx.process_group.ftpg as ftpg
-
     replica_assembler = create_global_replica_assembler_once(
         rank_in_replica,
         world_size_in_replica,
@@ -78,6 +88,8 @@ def create_epx_ftpg_exhanced_mode(ranks, timeout, backend, group_desc):
         group_desc=group_desc,
         replica_assembler=replica_assembler,
     )
+    # record all FTPG groups created
+    _ALL_FTPG_GROUPS.append(group)
     return group
 
 
@@ -88,7 +100,6 @@ def create_epx_ftpg(
     group_desc: Optional[str] = None,
 ) -> torch.distributed.ProcessGroup:
     """Create a fault-tolerant process group."""
-    import epx.process_group.ftpg as ftpg
 
     new_backend = 'ftepx_cpu' if backend == 'gloo' else 'ftepx'
     pg_options = ftpg.FaultTolerantProcessGroup.Options(group_desc)
