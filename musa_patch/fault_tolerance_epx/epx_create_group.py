@@ -61,6 +61,12 @@ def create_group(
     )
 
 
+def pre_comm_hook_in_fte_mode(group: "ftpg.FaultTolerantProcessGroup"):
+    # wait for all ranks with in the same replica
+    if group._group_desc in ("DATA_PARALLEL_GROUP", "DATA_PARALLEL_GROUP_WITH_CP"):
+        torch.distributed.barrier()
+
+
 def create_epx_ftpg_exhanced_mode(ranks, timeout, backend, group_desc):
     # global rank inside a single replica
     rank_in_replica = int(os.environ.get('RANK', 0))
@@ -77,6 +83,8 @@ def create_epx_ftpg_exhanced_mode(ranks, timeout, backend, group_desc):
         replica_rank,
         replica_parallel_size,
     )
+    pre_comm_hook = pre_comm_hook_in_fte_mode \
+        if group_desc in ("DATA_PARALLEL_GROUP", "DATA_PARALLEL_GROUP_WITH_CP") else None
     group = ftpg.create_ftpg_gpu_replica_wise(
         ranks=ranks,
         timeout=timeout,
@@ -87,6 +95,7 @@ def create_epx_ftpg_exhanced_mode(ranks, timeout, backend, group_desc):
         replica_parallel_size=replica_parallel_size,
         group_desc=group_desc,
         replica_assembler=replica_assembler,
+        pre_comm_hook=pre_comm_hook,
     )
     # record all FTPG groups created
     _ALL_FTPG_GROUPS.append(group)
