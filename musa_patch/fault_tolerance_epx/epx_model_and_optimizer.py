@@ -3,6 +3,7 @@ import os
 import wrapt
 import torch
 import megatron
+from collections.abc import Iterable
 from megatron.core import mpu
 import megatron.core.parallel_state as parallel_state
 from megatron.training.training import setup_model_and_optimizer
@@ -109,7 +110,44 @@ def setup_model_and_optimizer_wrapper(wrapped, _, args, kwargs):
     logger.info(f"Finished wrap optimizer by epx")
 
     return model, optimizer, opt_param_scheduler
+@wrapt.decorator
+def model_migrate_wrapper(wrapped, _, args, kwargs):
+    logger.info("epx model_migrate_wrapper")
+    model, optimizer, opt_param_scheduler = wrapped(*args, **kwargs)
 
+    assert isinstance(model, Iterable), "model must be iterable"
+
+    for module in model:
+        frozen_params = {}
+        for param in module.parameters():
+            if not param.requires_grad:
+                frozen_params_list = frozen_params.get(param.dtype, [])
+                frozen_params_list.append(param)
+                frozen_params[param.dtype] = frozen_params_list
+
+        flatten_params = {
+            dtype : torch._C._nn.flatten_dense_tensors(params)
+            for dtype, params in frozen_params.items()
+        }
+
+        unflatten_params = {
+            dtype : torch._C._nn.unflatten_dense_tensors(
+                flatten_params[dtype], frozen_params[dtype]
+            )
+            for dtype in frozen_params.keys()
+        }
+
+        for dtype, params in frozen_params.items():
+            for param, unflatten_param in zip(params, unflatten_params[dtype]):
+                param.data = unflatten_param.data
+
+        module.ft_frozen_params =  flatten_params if flatten_params is not None else None
+
+    return model, optimizer, opt_param_scheduler
+
+if int(os.getenv("USE_EPX", "0")) and int(os.getenv("EPX_FTE_MODE_ENABLED", 0)):
+    wraped_model_migrate = model_migrate_wrapper(setup_model_and_optimizer)
+    megatron.training.training.setup_model_and_optimizer = wraped_model_migrate
 
 if int(os.getenv("USE_EPX", 0)) and int(os.getenv("EPX_ELASTIC_MODE_ENABLED", 0)):
     wraped_setup_model_and_optimizer = setup_model_and_optimizer_wrapper(setup_model_and_optimizer)
