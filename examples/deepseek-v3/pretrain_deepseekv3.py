@@ -67,7 +67,7 @@ def model_provider(pre_process=True, post_process=True) -> Union[GPTModel, megat
 
             # record stack information for the trace events
             trace_alloc_record_context=True)
-        
+
     print_rank_0('building GPT model ...')
     # Experimental loading arguments from yaml
     if args.yaml_cfg is not None:
@@ -185,7 +185,7 @@ def loss_func(loss_mask: torch.Tensor, output_tensor: Union[torch.Tensor, tuple]
     total_tokens = loss_mask.sum()
     # if args.use_multi_token_prediction:
     #     loss = torch.cat([torch.sum(losses.view(-1) * loss_mask).view(1) + args.mtp_coeff * mtp_loss_masked, total_tokens.view(1)])
-    # else:    
+    # else:
     loss = torch.cat([torch.sum(losses.view(-1) * loss_mask).view(1), total_tokens.view(1)])
 
     if args.context_parallel_size > 1:
@@ -320,7 +320,6 @@ def train_valid_test_datasets_provider(train_val_test_num_samples):
 
 
 if __name__ == "__main__":
-
     # Temporary for transition to core datasets
     train_valid_test_datasets_provider.is_distributed = True
 

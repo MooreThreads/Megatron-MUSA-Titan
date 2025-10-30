@@ -1,13 +1,25 @@
+import logging
 import torch
 import torch.distributed as dist
 from megatron.core import mpu
 from torch.distributed import _coalescing_manager
+from megatron.core.optimizer import ChainedOptimizer
 from megatron.core.optimizer.distrib_optimizer import DistributedOptimizer
+
+logger = logging.getLogger(__name__)
 
 @torch.no_grad()
 def epx_params_migrate(models, optimizer, new_replica: bool):
 
-    assert isinstance(optimizer, DistributedOptimizer), "optimizer must be DistributedOptimizer"
+    logger.info(f"epx_params_migrate start ...")
+
+    if isinstance(optimizer, ChainedOptimizer):
+        optimizers = optimizer.chained_optimizers
+    else:
+        optimizers = [optimizer]
+
+    for optimizer in optimizers:
+        assert isinstance(optimizer, DistributedOptimizer), "optimizer must be DistributedOptimizer"
 
     def _sync_buffers(buffers, group):
         if buffers is None:
@@ -23,6 +35,9 @@ def epx_params_migrate(models, optimizer, new_replica: bool):
             dist.all_reduce(buffer.param_data, op=dist.ReduceOp.MAX, group=group)
 
     expert_data_parallel_group = mpu.get_expert_data_parallel_group()
+
+    logger.info(f"EDP PG rank: {expert_data_parallel_group.rank()}, PG size: {expert_data_parallel_group.size()}")
+
     if isinstance(models, torch.nn.Module):
         models = [models]
 
@@ -40,4 +55,7 @@ def epx_params_migrate(models, optimizer, new_replica: bool):
 
     # step2 : sync optimizer main_params
     if new_replica:
-        optimizer._copy_model_params_to_main_params()
+        for optimizer in optimizers:
+            optimizer._copy_model_params_to_main_params()
+
+    logger.info(f"epx_params_migrate finish.")
