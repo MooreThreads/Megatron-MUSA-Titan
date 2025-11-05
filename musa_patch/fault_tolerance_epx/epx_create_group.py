@@ -67,7 +67,12 @@ def pre_comm_hook_in_fte_mode(group: "ftpg.FaultTolerantProcessGroup"):
         torch.distributed.barrier()
 
 
-def create_epx_ftpg_exhanced_mode(ranks, timeout, backend, group_desc):
+def get_assemble_timeout_ms(group_desc: str) -> Optional[int]:
+    timeout_ms_str = os.environ.get('EPX_FTPG_ASSEMBLE_TIMEOUT_MS_' + group_desc, None)
+    return int(timeout_ms_str) if timeout_ms_str else None
+
+
+def create_epx_ftpg_enhanced_mode(ranks, timeout, backend, group_desc):
     # global rank inside a single replica
     rank_in_replica = int(os.environ.get('RANK', 0))
     # global world size inside a single replica
@@ -85,6 +90,7 @@ def create_epx_ftpg_exhanced_mode(ranks, timeout, backend, group_desc):
     )
     pre_comm_hook = pre_comm_hook_in_fte_mode \
         if group_desc in ("DATA_PARALLEL_GROUP", "DATA_PARALLEL_GROUP_WITH_CP") else None
+    assemble_timeout_ms = get_assemble_timeout_ms(group_desc)
     group = ftpg.create_ftpg_gpu_replica_wise(
         ranks=ranks,
         timeout=timeout,
@@ -96,6 +102,7 @@ def create_epx_ftpg_exhanced_mode(ranks, timeout, backend, group_desc):
         group_desc=group_desc,
         replica_assembler=replica_assembler,
         pre_comm_hook=pre_comm_hook,
+        assemble_timeout_ms=assemble_timeout_ms,
     )
     # record all FTPG groups created
     _ALL_FTPG_GROUPS.append(group)
@@ -121,7 +128,7 @@ def create_epx_ftpg(
             group_desc=group_desc
         )
     elif int(os.getenv("EPX_FTE_MODE_ENABLED", 0)):
-        group = create_epx_ftpg_exhanced_mode(ranks, timeout, new_backend, group_desc)
+        group = create_epx_ftpg_enhanced_mode(ranks, timeout, new_backend, group_desc)
     else:
         raise ValueError("Either EPX_FT_MODE_ENABLED or EPX_FTE_MODE_ENABLED must be set to 1.")
 
