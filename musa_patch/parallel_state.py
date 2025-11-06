@@ -816,11 +816,6 @@ def initialize_model_parallel(
     assert _EXPERT_DATA_PARALLEL_GROUP_GLOO is None, 'Expert data group-gloo is already initialized'
 
     for ranks in generator_wrapper('dp', is_expert=True):
-        # Skip creating the expert data parallel group if the current rank does not 
-        # belong to any expert data parallel group.
-        if rank not in ranks:
-            continue
-
         if int(os.getenv("USE_EPX", 0)) \
             and (int(os.getenv("EPX_FT_MODE_ENABLED", 0)) or int(os.getenv("EPX_FTE_MODE_ENABLED", 0))):
             group = create_epx_ftpg_auto(

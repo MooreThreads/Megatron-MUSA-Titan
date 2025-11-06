@@ -117,6 +117,11 @@ def create_epx_ftpg(
 ) -> torch.distributed.ProcessGroup:
     """Create a fault-tolerant process group."""
 
+    # check if the current rank is in the ranks list
+    rank_in_replica = torch.distributed.get_rank()
+    if rank_in_replica not in ranks:
+        return torch.distributed.GroupMember.NON_GROUP_MEMBER
+
     new_backend = 'ftepx_cpu' if backend == 'gloo' else 'ftepx'
     pg_options = ftpg.FaultTolerantProcessGroup.Options(group_desc)
     if int(os.getenv("EPX_FT_MODE_ENABLED", 0)):
