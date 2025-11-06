@@ -4,7 +4,6 @@ import os
 from typing import List, Optional
 
 import torch
-from torch._C._distributed_c10d import _DistributedBackendOptions, PrefixStore
 import megatron.core.parallel_state as parallel_state
 
 import epx.process_group.ftpg as ftpg
@@ -15,6 +14,8 @@ origin_create_group = parallel_state.create_group
 
 # All FTPG groups created globally
 _ALL_FTPG_GROUPS: List[ftpg.FaultTolerantProcessGroup] = []
+_FTPG_GROUP_MAPPING: dict[str, Tuple[ftpg.FaultTolerantProcessGroup, torch.distributed.ProcessGroup]] = {}
+
 
 def initialize_all_groups():
     global _ALL_FTPG_GROUPS
@@ -64,7 +65,13 @@ def create_group(
 def pre_comm_hook_in_fte_mode(group: "ftpg.FaultTolerantProcessGroup"):
     # wait for all ranks with in the same replica
     if group._group_desc in ("DATA_PARALLEL_GROUP", "DATA_PARALLEL_GROUP_WITH_CP"):
-        torch.distributed.barrier()
+        group_inside_replica: torch.distributed.ProcessGroup = _FTPG_GROUP_MAPPING[group._group_desc][1]
+        backend_name = torch.distributed.get_backend(group_inside_replica)
+        if backend_name == 'mccl' or backend_name == 'nccl':
+            torch.distributed.barrier(group=group_inside_replica, device_ids=[torch.cuda.current_device()])
+        else:
+            assert backend_name == 'gloo', f"backend {backend_name} is not supported"
+            torch.distributed.barrier(group=group_inside_replica)
 
 
 def get_assemble_timeout_ms(group_desc: str) -> Optional[int]:
@@ -82,6 +89,9 @@ def create_epx_ftpg_enhanced_mode(ranks, timeout, backend, group_desc):
     # replica parallel size: total number of replicas
     replica_parallel_size = int(os.environ.get('EPX_REPLICA_PARALLEL_SIZE', 1))
 
+    # use pre-comm hook in FTE mode
+    use_pre_comm_hook = bool(os.environ.get('EPX_USE_PRE_COMM_HOOK_IN_FTE_MODE', 0))
+
     replica_assembler = create_global_replica_assembler_once(
         rank_in_replica,
         world_size_in_replica,
@@ -89,7 +99,7 @@ def create_epx_ftpg_enhanced_mode(ranks, timeout, backend, group_desc):
         replica_parallel_size,
     )
     pre_comm_hook = pre_comm_hook_in_fte_mode \
-        if group_desc in ("DATA_PARALLEL_GROUP", "DATA_PARALLEL_GROUP_WITH_CP") else None
+        if use_pre_comm_hook and group_desc in ("DATA_PARALLEL_GROUP", "DATA_PARALLEL_GROUP_WITH_CP") else None
     assemble_timeout_ms = get_assemble_timeout_ms(group_desc)
     group = ftpg.create_ftpg_gpu_replica_wise(
         ranks=ranks,
@@ -106,6 +116,17 @@ def create_epx_ftpg_enhanced_mode(ranks, timeout, backend, group_desc):
     )
     # record all FTPG groups created
     _ALL_FTPG_GROUPS.append(group)
+
+    # create a group inside each replica for pre-comm hook
+    if use_pre_comm_hook:
+        group_inside_replica = create_group(
+            ranks=ranks,
+            timeout=timeout,
+            backend='gloo' if backend == 'ftepx_cpu' else 'nccl',
+            group_desc=group_desc+'_IN_REPLICA',
+        )
+        _FTPG_GROUP_MAPPING[group_desc] = (group, group_inside_replica)
+
     return group
 
 
