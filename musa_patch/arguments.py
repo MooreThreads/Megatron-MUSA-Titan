@@ -167,6 +167,21 @@ def _add_moe_args(parser):
     group.add_argument('--mlp-recompute', action='store_true',
                        help="use groupMLP_recompute to recompute groupgemm and shared_exp in moelayer, mlp in dense") 
     ## HACK(huang.huang)
+    ## HACK(yiming.chen)
+    
+    group.add_argument('--norm-before-router-softmax', action='store_true',
+                    help="add Layer-Norm before router softmax operator")
+    group.add_argument('--use-unbiased-norm', action='store_true',
+                    help="use the unbiased Layer-Norm before router softmax operator")
+    group.add_argument('--moe-router-norm-scale', type=float, default=1.0,
+                    help="coefficient for norm-before-router-softmax")
+    
+    group.add_argument('--router-prob-var-mointor-freq', type=int, default=0,
+                    help="freq for logging router prob (after softmax) variance, set 0 to disable")
+    group.add_argument('--router-logit-var-mointor-freq', type=int, default=0,
+                    help="freq for logging router logit variance, set 0 to disable")
+    group.add_argument('--router-maxvio-mointor-freq', type=int, default=0,
+                    help="freq for logging load balance, set 0 to disable")
     return parser
 
 
@@ -247,6 +262,15 @@ def core_transformer_config_from_args(args, config_class=None):
     # HACK(huang.huang): control dp_reduce position: tp-only-amax-red 
     config_instance.tp_only_amax_red = args.tp_only_amax_red
     ##HACK(huang.huang)
+    
+    ##HACK(yiming.chen)
+    config_instance.norm_before_router_softmax = args.norm_before_router_softmax
+    config_instance.use_unbiased_norm = args.use_unbiased_norm
+    config_instance.moe_router_norm_scale = args.moe_router_norm_scale
+    ##HACK(yiming.chen)
+    config_instance.router_prob_var_mointor_freq = args.router_prob_var_mointor_freq
+    config_instance.router_logit_var_mointor_freq = args.router_logit_var_mointor_freq
+    config_instance.router_maxvio_mointor_freq = args.router_maxvio_mointor_freq
     
     print('config_instance is ', config_instance)
     return config_instance

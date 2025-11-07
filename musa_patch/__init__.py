@@ -28,7 +28,7 @@ def patch_before_import_megatron():
     from . import fused_bias_swiglu
     if int(os.getenv("USE_MUSA_MOE", 0)):
         from . import moe_utils
-        from . import router
+    from . import router
     from . import arguments
     if int(os.getenv("USE_RECOMPUTE_VARIANCE", 0)):
         from . import recomupte_variance
