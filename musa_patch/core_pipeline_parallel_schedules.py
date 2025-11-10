@@ -26,11 +26,13 @@ def forward_step(
     input_tensor,
     forward_data_store,
     config,
+    cp_group_size,
     collect_non_loss_data=False,
     checkpoint_activations_microbatch=None,
     is_first_microbatch=False,
     current_microbatch=None,
-    encoder_decoder_xattn=False,
+    vp_stage=None,
+    is_last_stage=True,
 ):
     return original_forward_step(
         forward_step_func,
@@ -40,18 +42,20 @@ def forward_step(
         input_tensor,
         forward_data_store,
         config,
+        cp_group_size,
         collect_non_loss_data,
         checkpoint_activations_microbatch,
         is_first_microbatch,
         current_microbatch,
-        encoder_decoder_xattn,
+        vp_stage,
+        is_last_stage,
     )
 
 
 @record_function_decorator
-def backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, config):
+def backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, config, pipeline_model_parallel_size=1):
     return original_backward_step(
-        input_tensor, output_tensor, output_tensor_grad, model_type, config
+        input_tensor, output_tensor, output_tensor_grad, model_type, config, pipeline_model_parallel_size
     )
 
 
