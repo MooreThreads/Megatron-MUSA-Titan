@@ -110,9 +110,9 @@ TRAINING_ARGS=(
     --train-samples 24414062
     --init-method-std  0.006 # 0.02 in HF config, but 0.006 in the paper
     --use-mcore-models
-    --no-gradient-accumulation-fusion
+    # --no-gradient-accumulation-fusion
     --no-bias-dropout-fusion
-    --no-bias-swiglu-fusion
+    # --no-bias-swiglu-fusion
     --use-distributed-optimizer
     --use-flash-attn
     --sequence-parallel
