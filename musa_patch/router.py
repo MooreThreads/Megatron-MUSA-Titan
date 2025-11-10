@@ -154,6 +154,3 @@ def routing(self, logits: torch.Tensor):
 if int(os.getenv("USE_MUSA_ROUTER", 0)):
     replace_attr(TopKRouter, "__init__", router_init_func)
     replace_attr(TopKRouter, "routing", routing)
-else:
-    args = get_args()
-    assert not bool(args.norm_before_router_softmax)

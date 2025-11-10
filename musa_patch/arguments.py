@@ -1,6 +1,7 @@
 import dataclasses
 import torch
 import torch.nn.functional as F
+import os
 
 import megatron.training.arguments
 from megatron.core.activations import squared_relu
@@ -267,6 +268,9 @@ def core_transformer_config_from_args(args, config_class=None):
     config_instance.norm_before_router_softmax = args.norm_before_router_softmax
     config_instance.use_unbiased_norm = args.use_unbiased_norm
     config_instance.moe_router_norm_scale = args.moe_router_norm_scale
+    if bool(args.norm_before_router_softmax):
+        assert int(os.getenv("USE_MUSA_ROUTER", 0))
+
     ##HACK(yiming.chen)
     config_instance.router_prob_var_mointor_freq = args.router_prob_var_mointor_freq
     config_instance.router_logit_var_mointor_freq = args.router_logit_var_mointor_freq
