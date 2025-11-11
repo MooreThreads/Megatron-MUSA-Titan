@@ -60,6 +60,9 @@ mkdir -p $TB_PATH
 WB_PATH=$WORK_HOME/wandb/$EXPNAME
 mkdir -p $WB_PATH
 
+#VMM
+export PYTORCH_MUSA_ALLOC_CONF="expandable_segments:True"
+export TORCH_MCCL_AVOID_RECORD_STREAMS=1 
 
 export NODE_ADDR=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2;}'|tr -d "addr:"|head -n 1) # tail for cuda/ head for musa
 export GPUS_PER_NODE=8
@@ -90,7 +93,7 @@ MODEL_ARGS=(
     --attention-dropout 0.0 
     --hidden-dropout 0.0 
     --disable-bias-linear 
-    --vocab-size 129280
+    --vocab-size 157184
     --ffn-hidden-size 18432
     --position-embedding-type rope 
     --no-position-embedding 

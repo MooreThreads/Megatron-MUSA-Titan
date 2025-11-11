@@ -60,6 +60,9 @@ mkdir -p $TB_PATH
 WB_PATH=$WORK_HOME/wandb/$EXPNAME
 mkdir -p $WB_PATH
 
+#VMM
+export PYTORCH_MUSA_ALLOC_CONF="expandable_segments:True"
+export TORCH_MCCL_AVOID_RECORD_STREAMS=1 
 
 export NODE_ADDR=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2;}'|tr -d "addr:"|head -n 1) # tail for cuda/ head for musa
 export GPUS_PER_NODE=8
@@ -82,15 +85,15 @@ DISTRIBUTED_ARGS=(
 
 MODEL_ARGS=(
     --num-layers 1  # 61 
-    --hidden-size 8192
-    --num-attention-heads 128
+    --hidden-size 7168
+    --num-attention-heads 64
     --seq-length 4096 
     --max-position-embeddings 4096 
     --norm-epsilon 1e-6 
     --attention-dropout 0.0 
     --hidden-dropout 0.0 
     --disable-bias-linear 
-    --vocab-size 129280
+    --vocab-size 163840
     --ffn-hidden-size 18432
     --position-embedding-type rope 
     --no-position-embedding 
@@ -183,8 +186,8 @@ MOE_ARGS=(
     --num-experts 384
     --expert-model-parallel-size $EP_SIZE
     --moe-token-dispatcher-type alltoall
-    --moe-router-num-groups 8
-    --moe-router-group-topk 4
+    # --moe-router-num-groups 8
+    # --moe-router-group-topk 4
     --moe-router-topk 8
     --moe-router-score-function sigmoid
     --moe-router-topk-scaling-factor 2.5

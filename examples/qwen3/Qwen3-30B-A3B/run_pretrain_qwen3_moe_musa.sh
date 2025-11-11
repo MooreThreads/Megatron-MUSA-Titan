@@ -102,7 +102,6 @@ DISTRIBUTED_ARGS=(
 MODEL_ARGS=(
     --num-layers 48  # 48
     --hidden-size 2048
-    --num-attention-heads 128
     --seq-length 4096 
     --max-position-embeddings 40960 
     --norm-epsilon 1e-6
