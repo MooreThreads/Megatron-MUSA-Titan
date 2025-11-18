@@ -60,6 +60,10 @@ while [[ $# -gt 0 ]]; do
             EPX_STORE_PORT="$2"
             shift
             ;;
+        --hostfile)
+            HOSTFILE="$2"
+            shift
+            ;;
         -r|--replica)
             EPX_REPLICA_RANK="$2"
             shift
@@ -139,6 +143,7 @@ set_common_env() {
     # export MEGATRON_LOGGING_LEVEL=30
 
     # export MCCL_DEBUG=TRACE
+    # export MUSA_LAUNCH_BLOCKING=1
 
     export RUN_LOCAL=1
     export GPUS_PER_NODE=4
@@ -161,6 +166,9 @@ set_common_env() {
     export DATA_PATH=${DATA_PATH:-"$ROOT_PATH/llama2_dataset/llama_00_text_document"}
     export TOKENIZED_MODEL="$ROOT_PATH/dataset/llama3_tokenizer"
 
+    export HOSTFILE=${HOSTFILE:-"./hostfile"}
+    echo "HOSTFILE: $HOSTFILE"
+
     SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 }
 
@@ -175,8 +183,9 @@ R0_PID=$!
 
 wait $R0_PID
 
-if [[ "$USE_EPX" -ne 0 && "$MASTER_ADDR" = "$HOST_ADDR" ]]; then
-    kill -9 $STORE_PID
-    pkill -f $EPX_STORE_PATH
+if [[ "$USE_EPX" -ne 0 && "$EPX_STORE_ADDR" = "$HOST_ADDR" ]]; then
+    if [ -n "$STORE_PID" ]; then
+        kill -9 $STORE_PID
+    fi
     pkill -f $EPX_STORE_PATH
 fi

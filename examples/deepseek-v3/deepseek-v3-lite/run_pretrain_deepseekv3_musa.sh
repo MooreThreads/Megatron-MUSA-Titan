@@ -81,6 +81,19 @@ DISTRIBUTED_ARGS=(
     --log_dir $WORK_HOME/output_log/$RDZV_ID/$EXPNAME/$NODE_RANK
     --redirects 3
 )
+# Distributed args for epx
+if [ $USE_EPX -ne 0 ]; then
+    DISTRIBUTED_ARGS=(
+        --nproc_per_node $GPUS_PER_NODE
+        --nnodes $NUM_NODES
+        --node_rank $NODE_RANK
+        --master_addr $MASTER_ADDR
+        --master_port $MASTER_PORT
+        --log_dir $WORK_HOME/output_log/$RDZV_ID/$EXPNAME
+        --redirects 3
+        --logs-specs epxlog
+    )
+fi
 
 MODEL_ARGS=(
     --num-layers ${NUM_LAYERS}  # 61

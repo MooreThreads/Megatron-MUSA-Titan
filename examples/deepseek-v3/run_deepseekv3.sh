@@ -22,7 +22,7 @@ set -u
   # DATA_PATH=/home/dist/musa_tmp_share/megatron_0.9-share-hh/data/mixtral_dataset/dedup-md5-pile-pile-cc_text_document
   # DATA_PATH=/home/dist/musa_tmp_share/dataset/deepseekv2_dataset/deepseek_train_text_document
   DATA_PATH=${DATA_PATH:-"/home/dist/dataset/llama2_dataset/llama_00_text_document"}
-  HOSTFILE=./hostfile
+  HOSTFILE=${HOSTFILE:-"./hostfile"}
   LOG_FILE=./output/$CURRENT_TIME/$EXPNAME.log
   # TOKENIZED_MODEL=/home/dist/musa_tmp_share/dataset/llama3_tokenizer
   TOKENIZED_MODEL=${TOKENIZED_MODEL:-"/home/dist/dataset/deepseek_tokenizer/DeepSeek-V3"}
