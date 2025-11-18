@@ -1,7 +1,7 @@
 
 from datetime import timedelta
 import os
-from typing import List, Optional
+from typing import List, Tuple, Optional
 
 import torch
 import megatron.core.parallel_state as parallel_state
