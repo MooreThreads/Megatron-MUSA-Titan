@@ -777,13 +777,13 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                 curr_replica_is_new = (replica_assembler.revision_id() == -1)
                 if replica_assembler is None:
                     raise RuntimeError("Global ReplicaAssembler is not created yet.")
-                _, new_revision_recvd = replica_assembler.assemble()
+                _, new_revision_recvd, new_members_joined = replica_assembler.assemble()
 
                 # make sure all FTPG group is available before the first train step
                 if new_revision_recvd:
                     if replica_assembler.revision_id() == 1:
                         initialize_all_groups()
-                    else:
+                    elif new_members_joined:
                         epx_params_migrate(model, optimizer, curr_replica_is_new)
 
             loss_dict, skipped_iter, should_checkpoint, should_exit, exit_code, grad_norm, num_zeros_in_grad = \
