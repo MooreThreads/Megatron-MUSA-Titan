@@ -2,6 +2,7 @@
 from datetime import timedelta
 import os
 from typing import List, Tuple, Optional
+import logging
 
 import torch
 import megatron.core.parallel_state as parallel_state
@@ -11,6 +12,8 @@ import epx.process_group.ftpg as ftpg
 
 origin_create_group = parallel_state.create_group
 
+logger = logging.getLogger(__name__)
+
 
 # All FTPG groups created globally
 _ALL_FTPG_GROUPS: List[ftpg.FaultTolerantProcessGroup] = []
@@ -18,9 +21,13 @@ _FTPG_GROUP_MAPPING: dict[str, Tuple[ftpg.FaultTolerantProcessGroup, torch.distr
 
 
 def initialize_all_groups():
+    logger.info("Initializing all FTPG groups ...")
+
     global _ALL_FTPG_GROUPS
     for group in _ALL_FTPG_GROUPS:
         group.reconfigure()
+
+    logger.info("Initializing all FTPG groups done.")
 
 
 def create_global_replica_assembler_once(

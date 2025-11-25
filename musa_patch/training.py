@@ -784,6 +784,7 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                     if replica_assembler.revision_id() == 1:
                         initialize_all_groups()
                     elif new_members_joined:
+                        initialize_all_groups()
                         epx_params_migrate(model, optimizer, curr_replica_is_new)
 
             loss_dict, skipped_iter, should_checkpoint, should_exit, exit_code, grad_norm, num_zeros_in_grad = \
