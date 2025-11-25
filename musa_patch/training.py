@@ -769,23 +769,8 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
             args.curr_iteration = iteration
 
             if int(os.getenv("USE_EPX", "0")) and int(os.getenv("EPX_FTE_MODE_ENABLED", 0)):
-                from epx.replica_assembler import get_global_replica_assembler
-                from .fault_tolerance_epx.epx_create_group import initialize_all_groups
-                from .fault_tolerance_epx.epx_migrate import epx_params_migrate
-
-                replica_assembler = get_global_replica_assembler()
-                curr_replica_is_new = (replica_assembler.revision_id() == -1)
-                if replica_assembler is None:
-                    raise RuntimeError("Global ReplicaAssembler is not created yet.")
-                _, new_revision_recvd, new_members_joined = replica_assembler.assemble()
-
-                # make sure all FTPG group is available before the first train step
-                if new_revision_recvd:
-                    if replica_assembler.revision_id() == 1:
-                        initialize_all_groups()
-                    elif new_members_joined:
-                        initialize_all_groups()
-                        epx_params_migrate(model, optimizer, curr_replica_is_new)
+                from .fault_tolerance_epx.epx_assemble import assemble_replica_and_migrate_params_if_needed
+                assemble_replica_and_migrate_params_if_needed(iteration, model, optimizer)
 
             loss_dict, skipped_iter, should_checkpoint, should_exit, exit_code, grad_norm, num_zeros_in_grad = \
                 train_step(forward_step_func,
