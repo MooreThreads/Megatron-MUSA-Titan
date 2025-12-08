@@ -33,7 +33,7 @@ export MUSA_BLOCK_SCHEDULE_MODE=1
 export MCCL_ALGOS=1
 export MCCL_BUFFSIZE=20480000
 
-export USE_RECOMPUTE_VARIANCE=1
+export USE_RECOMPUTE_VARIANCE=0
 export ENABLE_D2H_IN_PERMUTATION=0
 export NO_LOSS_REDUCE=0
 export USE_MUSA_MOE=1
@@ -123,6 +123,7 @@ TRAINING_ARGS=(
     --distributed-backend nccl
     --multi-latent-attention
     --qk-layernorm
+    --enable-experimental
 )
 
 MLA_ARGS=(
