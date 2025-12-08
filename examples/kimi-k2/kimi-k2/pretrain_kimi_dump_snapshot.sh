@@ -165,6 +165,7 @@ LEARNING_RATE_ARGS=(
 MODEL_PARALLEL_ARGS=(
 	--tensor-model-parallel-size $TP_SIZE  
 	--pipeline-model-parallel-size $PP_SIZE 
+    --decoder-last-pipeline-num-layers 1
 )
 
 MIXED_PRECISION_ARGS=(
