@@ -31,3 +31,7 @@ eggs/
 
 # mccl log
 .mccl*
+
+# torch memory snapshot pickle files
+mem_snapshot/
+*.pkl

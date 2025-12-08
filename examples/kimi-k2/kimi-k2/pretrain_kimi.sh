@@ -52,13 +52,18 @@ mkdir -p $CHECKPOINT_PATH
 DATA_PATH=$DATA_DIR
 
 
-LOG_PATH=$WORK_HOME/logs/$EXPNAME
+LOG_PATH=$WORK_HOME/logs/$RDZV_ID
 mkdir -p $LOG_PATH
 cp $0 $LOG_PATH/
 TB_PATH=$WORK_HOME/tboard/$EXPNAME
 mkdir -p $TB_PATH
 WB_PATH=$WORK_HOME/wandb/$EXPNAME
 mkdir -p $WB_PATH
+
+export DUMP_MEMORY_SNAPSHOT=0
+export MEMORY_SNAPSHOT_PATH=$WORK_HOME/mem_snapshot/$RDZV_ID
+mkdir -p $MEMORY_SNAPSHOT_PATH
+export RDZV_ID=$RDZV_ID
 
 #VMM
 export PYTORCH_MUSA_ALLOC_CONF="expandable_segments:True"
@@ -84,7 +89,7 @@ DISTRIBUTED_ARGS=(
 )
 
 MODEL_ARGS=(
-    --num-layers 1  # 61 
+    --num-layers 61  # 61 
     --hidden-size 7168
     --num-attention-heads 64
     --seq-length 4096 
@@ -124,6 +129,9 @@ TRAINING_ARGS=(
     --multi-latent-attention
     --qk-layernorm
     --enable-experimental
+
+    --recompute-granularity selective
+    --recompute-modules mla_up_proj layernorm moe
 )
 
 MLA_ARGS=(
@@ -183,6 +191,9 @@ EVAL_AND_LOGGING_ARGS=(
     --tensorboard-dir $TB_PATH 
 )
 
+NUM_LAYERS=$(echo "${MODEL_ARGS[@]}" | grep -oP '(?<=--num-layers )\d+')
+NUM_LAYERS_MINUS_ONE=$((NUM_LAYERS - 1))
+MOE_LAYER_FREQ="([0]*1+[1]*${NUM_LAYERS_MINUS_ONE})*1"
 MOE_ARGS=(
     --num-experts 384
     --expert-model-parallel-size $EP_SIZE
@@ -194,7 +205,7 @@ MOE_ARGS=(
     --moe-router-topk-scaling-factor 2.5
     --moe-ffn-hidden-size 2048
     --moe-shared-expert-intermediate-size 2048
-    --moe-layer-freq "([1]*1)"
+    --moe-layer-freq "$MOE_LAYER_FREQ"
     --moe-grouped-gemm
     --moe-router-enable-expert-bias
     --moe-router-bias-update-rate 1e-3

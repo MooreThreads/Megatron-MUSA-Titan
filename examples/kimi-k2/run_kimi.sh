@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CURRENT_TIME=$(date "+%Y-%m-%d_%H:%M:%S")
+CURRENT_TIME=$(date "+%Y-%m-%d_%H%M%S")
 echo $CURRENT_TIME
 mkdir -p ./output/$CURRENT_TIME
 
@@ -21,11 +21,11 @@ set -u
   EXPNAME="tp${TP_SIZE}_pp${PP_SIZE}_dp${DP_SIZE}_mbs${MICRO_BATCH_SIZE}_numbs${NUM_MICROBATCHES}_gbs${GLOBAL_BATCH_SIZE}_gpus${WORLD_SIZE}"
   # DATA_PATH=/home/dist/musa_tmp_share/megatron_0.9-share-hh/data/mixtral_dataset/dedup-md5-pile-pile-cc_text_document
   # DATA_PATH=/home/dist/musa_tmp_share/dataset/deepseekv2_dataset/deepseek_train_text_document
-  DATA_PATH=${DATA_PATH:-"/home/dist/dataset/llama2_dataset/llama_00_text_document"}
+  DATA_PATH=${DATA_PATH:-"${DATA_ROOT}/dataset/llama2_dataset/llama_00_text_document"}
   HOSTFILE=./hostfile
   LOG_FILE=./output/$CURRENT_TIME/$EXPNAME.log
   # TOKENIZED_MODEL=/home/dist/musa_tmp_share/dataset/llama3_tokenizer  
-  TOKENIZED_MODEL=/home/dist/dataset/deepseek_tokenizer/DeepSeek-V3
+  TOKENIZED_MODEL=${DATA_ROOT}/dataset/llama2_dataset/DeepSeek-V3
   SCRIPT_FILE=./kimi-k2/pretrain_kimi.sh
   RDZV_ID=$CURRENT_TIME
 set +u
