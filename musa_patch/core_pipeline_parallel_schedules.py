@@ -1,16 +1,7 @@
 import os
 import megatron
 import functools
-import torch
-
-
-def record_function_decorator(func):
-    @functools.wraps(func)
-    def new_func(*args, **kwargs):
-        with torch.profiler.record_function(func.__name__):
-            return func(*args, **kwargs)
-
-    return new_func
+from .utils import record_function_decorator
 
 
 original_forward_step = megatron.core.pipeline_parallel.schedules.forward_step

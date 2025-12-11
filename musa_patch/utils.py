@@ -6,6 +6,8 @@ import subprocess
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Generator, Iterable, List, Optional, Set, Union
+import functools
+import torch
 
 # hardcoded BF16 type peak flops for Moore Threads S4000, and S5000 GPU
 def get_peak_flops(device_name: str) -> int:
@@ -41,6 +43,13 @@ def get_peak_flops(device_name: str) -> int:
         logger.warning(f"Peak flops undefined for: {device_name}, fallback to A100")
         return 312e12
 
+def record_function_decorator(func):
+    @functools.wraps(func)
+    def new_func(*args, **kwargs):
+        with torch.profiler.record_function(func.__name__):
+            return func(*args, **kwargs)
+
+    return new_func
 
 @dataclass(frozen=True)
 class Color:
