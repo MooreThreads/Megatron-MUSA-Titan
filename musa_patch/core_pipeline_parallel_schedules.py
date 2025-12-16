@@ -1,8 +1,6 @@
 import os
 import megatron
-import functools
 from .utils import record_function_decorator
-
 
 original_forward_step = megatron.core.pipeline_parallel.schedules.forward_step
 original_backward_step = megatron.core.pipeline_parallel.schedules.backward_step

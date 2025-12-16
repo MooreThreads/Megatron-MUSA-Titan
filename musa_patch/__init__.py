@@ -21,6 +21,7 @@ def patch_before_import_megatron():
     # from . import transformer_config
     from . import dot_product_attention
     from . import checkpointing
+    from . import profiling_annotation
     from . import training
     from . import linear_with_grad_accumulation_and_async_allreduce
     from . import rotary_pos_embedding

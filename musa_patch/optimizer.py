@@ -1,4 +1,3 @@
-# Copyright (c) 2024, NVIDIA CORPORATION. All rights reserved.
 import logging
 import warnings
 from typing import Callable, Dict, List, Optional, Tuple
