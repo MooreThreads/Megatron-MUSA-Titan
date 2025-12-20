@@ -7,6 +7,7 @@ class MemMonitor:
     get_batch_cnt = 0
     before_first_batch_allocated = 99999999.9
     max_token_num = 0
+    max_rank_ratio_list = []
     
     def __init__(self, tensor_name="", only_print_allocated_diff=True):
         self.tensor_name = tensor_name
