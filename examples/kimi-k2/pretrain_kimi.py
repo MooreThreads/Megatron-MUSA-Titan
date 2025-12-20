@@ -340,6 +340,7 @@ if __name__ == "__main__":
         RDZV_ID = os.environ.get('RDZV_ID')
         memory_snapshot_path = os.environ.get('MEMORY_SNAPSHOT_PATH')
         global_rank = torch.distributed.get_rank()
-        if global_rank >=0 and global_rank <=15:
+        from megatron.core.parallel_state import get_pipeline_model_parallel_rank, get_expert_data_parallel_rank
+        if get_pipeline_model_parallel_rank() in [0, 1] and get_expert_data_parallel_rank() == 0:
             torch.cuda.memory._dump_snapshot(memory_snapshot_path+"/"+"Rank"+str(global_rank)+"_"+RDZV_ID+".pkl")
     torch.cuda.memory._record_memory_history(enabled=None)

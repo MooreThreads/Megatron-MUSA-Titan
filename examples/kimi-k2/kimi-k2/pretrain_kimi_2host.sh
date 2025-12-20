@@ -211,8 +211,9 @@ MOE_ARGS=(
     --moe-router-enable-expert-bias
     --moe-router-bias-update-rate 1e-3
     --moe-router-dtype fp32
+    # --moe-router-force-load-balancing
     # --overlap-moe-expert-parallel-comm
-    # --moe-permute-fusion
+    --moe-permute-fusion
 )
 
 TRANSFORMER_ENGINE_ARGS=(
