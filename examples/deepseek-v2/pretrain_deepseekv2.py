@@ -45,7 +45,7 @@ from megatron.core.models.gpt.gpt_layer_specs import (
 
 stimer = StragglerDetector()
 
-def model_provider(pre_process=True, post_process=True) -> Union[GPTModel, megatron.legacy.model.GPTModel]:
+def model_provider(pre_process=True, post_process=True, vp_stage=None) -> Union[GPTModel, megatron.legacy.model.GPTModel]:
     """Builds the model.
 
     If you set the use_mcore_models to True, it will return the mcore GPT model and if not the legacy GPT model.
@@ -90,7 +90,7 @@ def model_provider(pre_process=True, post_process=True) -> Union[GPTModel, megat
         else:
             if args.num_experts:
                 # Define the decoder block spec
-                transformer_layer_spec = get_gpt_decoder_block_spec(config, use_transformer_engine=use_te)
+                transformer_layer_spec = get_gpt_decoder_block_spec(config, use_transformer_engine=use_te, vp_stage=vp_stage)
             else:
                 # Define the decoder layer spec
                 if use_te:
@@ -136,7 +136,8 @@ def model_provider(pre_process=True, post_process=True) -> Union[GPTModel, megat
                 position_embedding_type=args.position_embedding_type,
                 rotary_percent=args.rotary_percent,
                 rotary_base=args.rotary_base,
-                rope_scaling=args.use_rope_scaling
+                rope_scaling=args.use_rope_scaling,
+                vp_stage=vp_stage,
             )
 
     return model
