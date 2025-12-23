@@ -324,8 +324,9 @@ if __name__ == "__main__":
 
     # Temporary for transition to core datasets
     train_valid_test_datasets_provider.is_distributed = True
-
-    torch.cuda.memory._record_memory_history(max_entries=100000)
+    DUMP_MEMORY_SNAPSHOT = os.environ.get('DUMP_MEMORY_SNAPSHOT', 0)
+    if DUMP_MEMORY_SNAPSHOT:
+        torch.cuda.memory._record_memory_history()
 
     pretrain(
         train_valid_test_datasets_provider,
@@ -335,13 +336,12 @@ if __name__ == "__main__":
         args_defaults={'tokenizer_type': 'GPT2BPETokenizer'},
     )
 
-    DUMP_MEMORY_SNAPSHOT = os.environ.get('DUMP_MEMORY_SNAPSHOT')
     if DUMP_MEMORY_SNAPSHOT:
+        from megatron.core.parallel_state import get_pipeline_model_parallel_rank, get_expert_data_parallel_rank
         # we want to use RDZV_ID str as experiment name
         RDZV_ID = os.environ.get('RDZV_ID')
         memory_snapshot_path = os.environ.get('MEMORY_SNAPSHOT_PATH')
         global_rank = torch.distributed.get_rank()
-        from megatron.core.parallel_state import get_pipeline_model_parallel_rank, get_expert_data_parallel_rank
         if get_pipeline_model_parallel_rank() in [0, 1] and get_expert_data_parallel_rank() == 0:
             torch.cuda.memory._dump_snapshot(memory_snapshot_path+"/"+"Rank"+str(global_rank)+"_"+RDZV_ID+".pkl")
-    torch.cuda.memory._record_memory_history(enabled=None)
+        torch.cuda.memory._record_memory_history(enabled=None)
