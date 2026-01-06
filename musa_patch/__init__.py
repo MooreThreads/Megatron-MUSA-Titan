@@ -204,6 +204,9 @@ def patch_after_import_torch():
     torch.jit.script = noop
 
     def get_device_capability_musa():
+        # TODO(@ai-dist-infra): check device capability for MUSA backend
+        if torch.version.__version__ > "2.5.0":
+            return (8, 3)
         return [8, 3]
     torch.cuda.get_device_capability = get_device_capability_musa
 
