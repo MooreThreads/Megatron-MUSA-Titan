@@ -48,6 +48,7 @@ def patch_before_import_megatron():
 
     from . import core_pipeline_parallel_schedules
     from . import yarn_rotary_pos_embedding
+    from . import ckpt_torch_dist
     # Disable some unsupprted features
     # set_jit_fusion_options
     def set_jit_fusion_options():
@@ -240,6 +241,14 @@ patch_after_import_torch()
 if os.getenv("ENABLE_ZERO_BUBBLE", "0") == "1":
     from .import zbb_light
     zbb_light.patch_megatron()
+    print(">>> MUSA DEBUG ZC: ENABLE_ZERO_BUBBLE is set to 1, disable TE fused te_general_gemm.")
+    import sys
+    from megatron.core.extensions import transformer_engine
+    transformer_engine.te_general_gemm = None
+    sys.modules['megatron.core.extensions.transformer_engine'].te_general_gemm = None
+    from megatron.core.transformer.moe import moe_utils
+    moe_utils.te_general_gemm = None
+    sys.modules['megatron.core.transformer.moe.moe_utils'].te_general_gemm = None
 
 patch_before_import_megatron()
 

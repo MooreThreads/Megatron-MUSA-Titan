@@ -1,0 +1,6 @@
+## patch
+from megatron.core.dist_checkpointing import state_dict_utils
+from .validation import validate_sharding_integrity_patched
+state_dict_utils.validate_sharding_integrity = validate_sharding_integrity_patched
+import sys
+sys.modules['megatron.core.dist_checkpointing.state_dict_utils'].validate_sharding_integrity = validate_sharding_integrity_patched
