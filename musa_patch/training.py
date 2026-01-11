@@ -220,7 +220,7 @@ def need_mlflow():
 
 
 def train_step(forward_step_func, data_iterator,
-               model, optimizer, opt_param_scheduler, config):
+               model, optimizer, opt_param_scheduler, config, forward_backward_func):
     """Single training step."""
     args = get_args()
     timers = get_timers()
@@ -233,7 +233,6 @@ def train_step(forward_step_func, data_iterator,
         optimizer.zero_grad()
 
         # Forward pass.
-        forward_backward_func = get_forward_backward_func()
         losses_reduced = forward_backward_func( # forward_data_store
             forward_step_func=forward_step_func,
             data_iterator=data_iterator,
@@ -679,6 +678,11 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
     num_microbatches = get_num_microbatches()
     eval_duration = 0.0
     eval_iterations = 0
+    # Wrap forward_backward_func for Full iteration CUDA graph
+    forward_backward_func = get_forward_backward_func()
+    if args.enable_cuda_graph and args.cuda_graph_scope=="full_iteration":
+        forward_backward_func = FullCudaGraphWrapper(forward_backward_func, cuda_graph_warmup_steps=args.cuda_graph_warmup_steps)
+
 
     def get_e2e_base_metrics():
         """Get base metrics values for one-logger to calculate E2E tracking metrics.
@@ -778,7 +782,8 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                         model,
                         optimizer,
                         opt_param_scheduler,
-                        config)
+                        config,
+                        forward_backward_func)
 
             moe_monitor.step()
 

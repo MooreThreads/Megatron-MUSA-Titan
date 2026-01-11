@@ -39,7 +39,11 @@ def patch_before_import_megatron():
         from . import fault_tolerance_epx
     # if int(os.getenv("ENABLE_D2H_IN_PERMUTATION", 0)):
     #     from . import token_dispatcher
-    from . import token_dispatcher
+    if int(os.getenv("USE_CE_ALLTOALL", 0)):
+        from . import ce_alltoall
+
+    if int(os.getenv("USE_DEEPEP_ACE", 0)):
+        from . import deepep_ace
 
     from . import core_pipeline_parallel_schedules
     from . import yarn_rotary_pos_embedding

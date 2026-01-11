@@ -49,9 +49,11 @@ export USE_RECOMPUTE_VARIANCE=0
 export ENABLE_D2H_IN_PERMUTATION=0
 export NO_LOSS_REDUCE=0
 export USE_MUSA_MOE=1
+export USE_CE_ALLTOALL=1
 
 MEGATRON_PATH=${PATCH_HOME}/../Megatron-LM
 export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
+export LD_LIBRARY_PATH=/usr/local/musa/lib:$LD_LIBRARY_PATH
 
 if [ ! -d "${MEGATRON_PATH}/build" ]; then
     cd "${MEGATRON_PATH}"
@@ -88,7 +90,7 @@ DISTRIBUTED_ARGS=(
     --node_rank $NODE_RANK
     --master_addr $MASTER_ADDR
     --master_port $MASTER_PORT
-    --log_dir $WORK_HOME/output_log/$RDZV_ID/$EXPNAME
+    --log_dir $WORK_HOME/output_log/$RDZV_ID/$EXPNAME/$NODE_ADDR
     --redirects ${LOG_REDIRECTS_LEVEL:-3}
 )
 
@@ -110,6 +112,8 @@ MODEL_ARGS=(
     --normalization RMSNorm
     --untie-embeddings-and-output-weights
     # --cross-entropy-loss-fusion
+    --rope-type yarn
+    --enable-experimental
 )
 
 # 24414062 1T
@@ -126,9 +130,9 @@ TRAINING_ARGS=(
     --use-distributed-optimizer
     --use-flash-attn
     --sequence-parallel
-    --recompute-granularity full
-    --recompute-method block
-    --recompute-num-layers 0
+    # --recompute-granularity full
+    # --recompute-method block
+    # --recompute-num-layers 0
     --distributed-backend $DIST_BACKEND
     --multi-latent-attention
     --qk-layernorm
@@ -145,7 +149,6 @@ TRAINING_ARGS=(
     # --use-precision-aware-optimizer # cpu offload must be precision-aware
     # --overlap-cpu-optimizer-d2h-h2d
     --tp-only-amax-red
-    --enable-experimental
 )
 
 MLA_ARGS=(
@@ -179,6 +182,8 @@ LEARNING_RATE_ARGS=(
 MODEL_PARALLEL_ARGS=(
 	--tensor-model-parallel-size $TP_SIZE
 	--pipeline-model-parallel-size $PP_SIZE
+    # --num-virtual-stages-per-pipeline-rank 2
+    # --no-overlap-p2p-communication
 )
 
 MIXED_PRECISION_ARGS=(
@@ -233,12 +238,14 @@ MOE_ARGS=(
     --moe-layer-freq "$MOE_LAYER_FREQ"
     --moe-grouped-gemm
     --moe-permute-fusion
+    --moe-router-dtype fp32
 )
 
 TRANSFORMER_ENGINE_ARGS=(
     --transformer-impl transformer_engine
-    # --fp8-format hybrid
-    # --fp8-param-gather
+    --fp8-format e4m3
+    --fp8-param-gather
+    --fp8-recipe mxfp8
 )
 
 # --moe-z-loss-coeff 1e-3

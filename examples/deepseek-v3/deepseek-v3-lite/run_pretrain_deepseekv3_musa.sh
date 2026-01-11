@@ -37,6 +37,7 @@ export USE_RECOMPUTE_VARIANCE=0
 export ENABLE_D2H_IN_PERMUTATION=0
 export NO_LOSS_REDUCE=0
 export USE_MUSA_MOE=1
+export USE_CE_ALLTOALL=0
 
 NUM_LAYERS=${NUM_LAYERS:-1}
 
@@ -224,7 +225,7 @@ MOE_ARGS=(
     --moe-router-dtype fp32
     --moe-aux-loss-coeff 1e-4
     # --overlap-moe-expert-parallel-comm
-    # --moe-permute-fusion
+    --moe-permute-fusion
 )
 
 TRANSFORMER_ENGINE_ARGS=(

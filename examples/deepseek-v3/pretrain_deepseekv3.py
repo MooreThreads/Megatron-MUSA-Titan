@@ -223,7 +223,7 @@ def loss_func(loss_mask: torch.Tensor, output_tensor: Union[torch.Tensor, tuple]
     )
 
 
-def forward_step(data_iterator, model: GPTModel, return_schedule_plan: bool = False):
+def forward_step(data_iterator, model: GPTModel, checkpoint_activations_microbatch=None, return_schedule_plan: bool = False):
     """Forward training step.
 
     Args:

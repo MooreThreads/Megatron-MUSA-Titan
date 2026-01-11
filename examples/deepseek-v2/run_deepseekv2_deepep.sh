@@ -7,7 +7,8 @@ mkdir -p ./output/$CURRENT_TIME
 TP_SIZE=${TP_SIZE:-1}
 PP_SIZE=${PP_SIZE:-1}
 EP_SIZE=${EP_SIZE:-8}
-WORLD_SIZE=${WORLD_SIZE:-8}
+# WORLD_SIZE=${WORLD_SIZE:-16}
+WORLD_SIZE=8
 MICRO_BATCH_SIZE=${MICRO_BATCH_SIZE:-1}
 NUM_MICROBATCHES=${NUM_MICROBATCHES:-32}
 (( DP_SIZE = $WORLD_SIZE / ($TP_SIZE * $PP_SIZE) ))
@@ -21,7 +22,8 @@ set -u
   WORK_HOME="$PWD"
   PATCH_HOME="$PWD"/../..
   EXPNAME="tp${TP_SIZE}_pp${PP_SIZE}_dp${DP_SIZE}_mbs${MICRO_BATCH_SIZE}_numbs${NUM_MICROBATCHES}_gbs${GLOBAL_BATCH_SIZE}_gpus${WORLD_SIZE}"
-  DATA_PATH=${DATA_PATH:-"/home/dist/llama2_dataset/llama_00_text_document"}
+  DATA_PATH=${DATA_PATH:-"${DATA_ROOT}/dataset/llama2_dataset/llama_00_text_document"}
+  TOKENIZED_MODEL=${DATA_ROOT}/dataset/llama2_dataset/DeepSeek-V3
   HOSTFILE=./hostfile
   LOG_FILE=$WORK_HOME/output/$CURRENT_TIME/$EXPNAME.log
   TOKENIZED_MODEL=${TOKENIZED_MODEL:-"/home/dist/lama2_dataset/tokenizer.model"}

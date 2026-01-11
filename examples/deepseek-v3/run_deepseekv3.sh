@@ -4,12 +4,12 @@ CURRENT_TIME=$(date "+%Y-%m-%d_%H:%M:%S")
 echo $CURRENT_TIME
 mkdir -p ./output/$CURRENT_TIME
 
-TP_SIZE=${TP_SIZE:-1}
-PP_SIZE=${PP_SIZE:-2}
-EP_SIZE=${EP_SIZE:-4}
-WORLD_SIZE=${WORLD_SIZE:-8}
+TP_SIZE=1
+PP_SIZE=1
+EP_SIZE=8
+WORLD_SIZE=8
 MICRO_BATCH_SIZE=${MICRO_BATCH_SIZE:-1}
-NUM_MICROBATCHES=${NUM_MICROBATCHES:-16}
+NUM_MICROBATCHES=${NUM_MICROBATCHES:-32}
 (( DP_SIZE = $WORLD_SIZE / ($TP_SIZE * $PP_SIZE) ))
 echo $DP_SIZE
 (( GLOBAL_BATCH_SIZE = $MICRO_BATCH_SIZE * $NUM_MICROBATCHES * $DP_SIZE ))
@@ -21,11 +21,11 @@ set -u
   EXPNAME="tp${TP_SIZE}_pp${PP_SIZE}_dp${DP_SIZE}_mbs${MICRO_BATCH_SIZE}_numbs${NUM_MICROBATCHES}_gbs${GLOBAL_BATCH_SIZE}_gpus${WORLD_SIZE}"
   # DATA_PATH=/home/dist/musa_tmp_share/megatron_0.9-share-hh/data/mixtral_dataset/dedup-md5-pile-pile-cc_text_document
   # DATA_PATH=/home/dist/musa_tmp_share/dataset/deepseekv2_dataset/deepseek_train_text_document
-  DATA_PATH=${DATA_PATH:-"/home/dist/dataset/llama2_dataset/llama_00_text_document"}
+  DATA_PATH=${DATA_PATH:-"${DATA_ROOT}/dataset/llama2_dataset/llama_00_text_document"}
   HOSTFILE=${HOSTFILE:-"./hostfile"}
   LOG_FILE=./output/$CURRENT_TIME/$EXPNAME.log
   # TOKENIZED_MODEL=/home/dist/musa_tmp_share/dataset/llama3_tokenizer
-  TOKENIZED_MODEL=${TOKENIZED_MODEL:-"/home/dist/dataset/deepseek_tokenizer/DeepSeek-V3"}
+  TOKENIZED_MODEL=${DATA_ROOT}/dataset/llama2_dataset/DeepSeek-V3
   SCRIPT_FILE=./deepseek-v3-lite/run_pretrain_deepseekv3_musa.sh
   RDZV_ID=$CURRENT_TIME
 set +u

@@ -263,6 +263,8 @@ def core_transformer_config_from_args(args, config_class=None):
     # HACK(huang.huang): control dp_reduce position: tp-only-amax-red 
     config_instance.tp_only_amax_red = args.tp_only_amax_red
     ##HACK(huang.huang)
+
+    config_instance.seq_length = args.seq_length
     
     ##HACK(yiming.chen)
     config_instance.norm_before_router_softmax = args.norm_before_router_softmax

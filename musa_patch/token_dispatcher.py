@@ -687,8 +687,8 @@ def MoEAlltoAllTokenDispatcher_combine_postprocess(self, permutated_local_input_
         output += shared_expert_output
     return output
 
-from transformer_engine.musa.pytorch.utils import replace_attr, add_attr
-from megatron.core.transformer.moe.token_dispatcher import MoEAlltoAllTokenDispatcher
+# from transformer_engine.musa.pytorch.utils import replace_attr, add_attr
+# from megatron.core.transformer.moe.token_dispatcher import MoEAlltoAllTokenDispatcher
 # replace_attr(MoEAlltoAllTokenDispatcher, '__init__', MoEAlltoAllTokenDispatcher___init__)
 # add_attr(MoEAlltoAllTokenDispatcher, '_ensure_cpu_tensor', MoEAlltoAllTokenDispatcher__ensure_cpu_tensor)
 # add_attr(MoEAlltoAllTokenDispatcher, '_maybe_dtoh_and_synchronize', MoEAlltoAllTokenDispatcher__maybe_dtoh_and_synchronize)
@@ -696,5 +696,5 @@ from megatron.core.transformer.moe.token_dispatcher import MoEAlltoAllTokenDispa
 # replace_attr(MoEAlltoAllTokenDispatcher, 'dispatch_postprocess', MoEAlltoAllTokenDispatcher_dispatch_postprocess)
 # replace_attr(MoEAlltoAllTokenDispatcher, 'token_dispatch', MoEAlltoAllTokenDispatcher_token_dispatch)
 # replace_attr(MoEAlltoAllTokenDispatcher, 'dispatch_preprocess', MoEAlltoAllTokenDispatcher_dispatch_preprocess)
-replace_attr(MoEAlltoAllTokenDispatcher, 'combine_postprocess', MoEAlltoAllTokenDispatcher_combine_postprocess)
+# replace_attr(MoEAlltoAllTokenDispatcher, 'combine_postprocess', MoEAlltoAllTokenDispatcher_combine_postprocess)
 # replace_attr(MoEAlltoAllTokenDispatcher, 'combine_preprocess', MoEAlltoAllTokenDispatcher_combine_preprocess)

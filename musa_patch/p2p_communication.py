@@ -24,67 +24,69 @@ def _p2p_ops(
     prev_pipeline_rank: int,
     next_pipeline_rank: int,
 ):
-    reqs = []
-    rank = get_pipeline_model_parallel_rank()
+    reqs = {}
     even_send_odd_recv_group = group
-    # if get_pipeline_model_parallel_world_size() == 2:
+    # if group.size() == 2 and torch.distributed.get_backend(group) != 'ucc':
     #     # Use the global process group for one of the two p2p communications
     #     # to allow the overlap of the independent communications.
     #     # Using the global process group is compatible because the pipeline-parallel
     #     # communications set the source and destination by global rank.
+    #     # The only exception occurs when using the ‘ucc’ backend.
+    #     # Because the global communicator always uses the ‘nccl’ backend,
+    #     # we must ensure the else path is followed for the ‘ucc’ backend.
     #     even_recv_odd_send_group = torch.distributed.group.WORLD
     # else:
     even_recv_odd_send_group = group
 
-    if get_pipeline_model_parallel_rank() % 2 == 0:
+    if group.rank() % 2 == 0:
         if tensor_send_next is not None:
             send_next_req = torch.distributed.isend(
                 tensor=tensor_send_next, dst=next_pipeline_rank, group=even_send_odd_recv_group
             )
-            reqs.append(send_next_req)
+            reqs["send_next"] = send_next_req
 
         if tensor_recv_prev is not None:
             recv_prev_req = torch.distributed.irecv(
                 tensor=tensor_recv_prev, src=prev_pipeline_rank, group=even_recv_odd_send_group
             )
-            reqs.append(recv_prev_req)
+            reqs["recv_prev"] = recv_prev_req
 
         if tensor_send_prev is not None:
             send_prev_req = torch.distributed.isend(
                 tensor=tensor_send_prev, dst=prev_pipeline_rank, group=even_send_odd_recv_group
             )
-            reqs.append(send_prev_req)
+            reqs["send_prev"] = send_prev_req
 
         if tensor_recv_next is not None:
             recv_next_req = torch.distributed.irecv(
                 tensor=tensor_recv_next, src=next_pipeline_rank, group=even_recv_odd_send_group
             )
-            reqs.append(recv_next_req)
+            reqs["recv_next"] = recv_next_req
 
     else:
         if tensor_recv_prev is not None:
             recv_prev_req = torch.distributed.irecv(
                 tensor=tensor_recv_prev, src=prev_pipeline_rank, group=even_send_odd_recv_group
             )
-            reqs.append(recv_prev_req)
+            reqs["recv_prev"] = recv_prev_req
 
         if tensor_send_next is not None:
             send_next_req = torch.distributed.isend(
                 tensor=tensor_send_next, dst=next_pipeline_rank, group=even_recv_odd_send_group
             )
-            reqs.append(send_next_req)
+            reqs["send_next"] = send_next_req
 
         if tensor_recv_next is not None:
             recv_next_req = torch.distributed.irecv(
                 tensor=tensor_recv_next, src=next_pipeline_rank, group=even_send_odd_recv_group
             )
-            reqs.append(recv_next_req)
+            reqs["recv_next"] = recv_next_req
 
         if tensor_send_prev is not None:
             send_prev_req = torch.distributed.isend(
                 tensor=tensor_send_prev, dst=prev_pipeline_rank, group=even_recv_odd_send_group
             )
-            reqs.append(send_prev_req)
+            reqs["send_prev"] = send_prev_req
     return reqs
 
 import megatron.core.pipeline_parallel.p2p_communication
