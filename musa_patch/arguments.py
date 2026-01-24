@@ -183,6 +183,14 @@ def _add_moe_args(parser):
                     help="freq for logging router logit variance, set 0 to disable")
     group.add_argument('--router-maxvio-mointor-freq', type=int, default=0,
                     help="freq for logging load balance, set 0 to disable")
+    
+    ## HACK(xiaoteng.cui)
+    group.add_argument('--offload-moe-fc1-input', action='store_true',
+                        help="Whether to offload moe (routed experts) fc1 input to cpu memory")
+    group.add_argument('--offload-moe-fused-swiglu-input', action='store_true',
+                    help="Whether to offload moe (routed experts) fused swiglu's input (fc1 output) to cpu memory")
+    ## HACK(xiaoteng.cui)
+    
     return parser
 
 
@@ -277,6 +285,14 @@ def core_transformer_config_from_args(args, config_class=None):
     config_instance.router_prob_var_mointor_freq = args.router_prob_var_mointor_freq
     config_instance.router_logit_var_mointor_freq = args.router_logit_var_mointor_freq
     config_instance.router_maxvio_mointor_freq = args.router_maxvio_mointor_freq
+    
+    ##HACK(xiaoteng.cui)
+    config_instance.offload_moe_fc1_input = args.offload_moe_fc1_input
+    config_instance.offload_moe_fused_swiglu_input = args.offload_moe_fused_swiglu_input
+    if config_instance.offload_moe_fc1_input or config_instance.offload_moe_fused_swiglu_input:
+        assert config_instance.pipeline_model_parallel_size >= 3, \
+            f"Activation offload must work with PP size >= 3, but get PP size == {config_instance.pipeline_model_parallel_size}. For an obvious GPU memory optimization performance, we recommend PP size >= 5."
+    ##HACK(xiaoteng.cui)
     
     print('config_instance is ', config_instance)
     return config_instance
