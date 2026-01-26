@@ -205,4 +205,4 @@ class MusaSwiGLUFunction(torch.autograd.Function):
 
 import megatron.core.fusions.fused_bias_swiglu
 megatron.core.fusions.fused_bias_swiglu.SwiGLUFunction = MusaSwiGLUFunction
-# megatron.core.fusions.fused_bias_swiglu.WeightedSwiGLUFunction = TritonWeightedSwiGLUFunction
+megatron.core.fusions.fused_bias_swiglu.WeightedSwiGLUFunction = TritonWeightedSwiGLUFunction
