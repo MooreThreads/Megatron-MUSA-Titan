@@ -181,7 +181,7 @@ class TritonWeightedSwiGLUFunction(torch.autograd.Function):
         
         input = input.to(ctx.ori_input_dtype) if ctx.fp8_input_store else input
         tmp, wgrad = triton_weighted_silu_backward(grad_output, input, weights)
-        return tmp, wgrad, None
+        return tmp, wgrad, None, None
 
 
 class MusaSwiGLUFunction(torch.autograd.Function):
@@ -205,4 +205,4 @@ class MusaSwiGLUFunction(torch.autograd.Function):
 
 import megatron.core.fusions.fused_bias_swiglu
 megatron.core.fusions.fused_bias_swiglu.SwiGLUFunction = MusaSwiGLUFunction
-megatron.core.fusions.fused_bias_swiglu.WeightedSwiGLUFunction = TritonWeightedSwiGLUFunction
+# megatron.core.fusions.fused_bias_swiglu.WeightedSwiGLUFunction = TritonWeightedSwiGLUFunction

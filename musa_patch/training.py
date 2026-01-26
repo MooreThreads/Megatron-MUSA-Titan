@@ -676,6 +676,8 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
     num_floating_point_operations_since_last_log_event = 0.0
 
     num_microbatches = get_num_microbatches()
+    from transformer_engine.pytorch.cpu_offload import get_fine_grained_offload_handler
+    get_fine_grained_offload_handler().num_microbatches = get_num_microbatches()
     eval_duration = 0.0
     eval_iterations = 0
     # Wrap forward_backward_func for Full iteration CUDA graph
