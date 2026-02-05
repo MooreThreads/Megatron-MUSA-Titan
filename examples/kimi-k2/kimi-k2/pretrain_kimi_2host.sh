@@ -60,10 +60,10 @@ mkdir -p $TB_PATH
 WB_PATH=$WORK_HOME/wandb/$EXPNAME
 mkdir -p $WB_PATH
 
-export DUMP_MEMORY_SNAPSHOT=0
-export MEMORY_SNAPSHOT_PATH=$WORK_HOME/mem_snapshot/$RDZV_ID
-mkdir -p $MEMORY_SNAPSHOT_PATH
-export RDZV_ID=$RDZV_ID
+# export DUMP_MEMORY_SNAPSHOT=0
+# export MEMORY_SNAPSHOT_PATH=$WORK_HOME/mem_snapshot/$RDZV_ID
+# mkdir -p $MEMORY_SNAPSHOT_PATH
+# export RDZV_ID=$RDZV_ID
 
 #VMM
 export PYTORCH_MUSA_ALLOC_CONF="expandable_segments:True"

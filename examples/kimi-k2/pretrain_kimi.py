@@ -213,7 +213,12 @@ def loss_func(loss_mask: torch.Tensor, output_tensor: Union[torch.Tensor, tuple]
         )
     # Reduce loss for logging.
     reporting_loss = loss.clone().detach()
-    torch.distributed.all_reduce(reporting_loss, group=mpu.get_data_parallel_group())
+    if not int(os.getenv("NO_LOSS_REDUCE", 0)): #TODO:(huang.huang) will influence the loss reported Now!
+        torch.distributed.all_reduce(reporting_loss, group=mpu.get_data_parallel_group())
+
+        if int(os.getenv("USE_EPX", 0)) and int(os.getenv("EPX_ELASTIC_MODE_ENABLED", 0)):
+            from musa_patch.fault_tolerance_epx.epx_sync_tensor import epx_sync_tensor_across_replicas
+            epx_sync_tensor_across_replicas(reporting_loss, opts=torch.distributed.ReduceOp.AVG, assemble=False)
 
     local_num_tokens = loss[1].clone().detach().to(torch.int)
     return (
@@ -324,10 +329,9 @@ if __name__ == "__main__":
 
     # Temporary for transition to core datasets
     train_valid_test_datasets_provider.is_distributed = True
-    DUMP_MEMORY_SNAPSHOT = os.environ.get('DUMP_MEMORY_SNAPSHOT', 0)
-    if DUMP_MEMORY_SNAPSHOT:
-        torch.cuda.memory._record_memory_history()
-
+    # DUMP_MEMORY_SNAPSHOT = os.environ.get('DUMP_MEMORY_SNAPSHOT', 0)
+    # if DUMP_MEMORY_SNAPSHOT:
+    #     torch.cuda.memory._record_memory_history()    
     pretrain(
         train_valid_test_datasets_provider,
         model_provider,
@@ -336,12 +340,12 @@ if __name__ == "__main__":
         args_defaults={'tokenizer_type': 'GPT2BPETokenizer'},
     )
 
-    if DUMP_MEMORY_SNAPSHOT:
-        from megatron.core.parallel_state import get_pipeline_model_parallel_rank, get_expert_data_parallel_rank
-        # we want to use RDZV_ID str as experiment name
-        RDZV_ID = os.environ.get('RDZV_ID')
-        memory_snapshot_path = os.environ.get('MEMORY_SNAPSHOT_PATH')
-        global_rank = torch.distributed.get_rank()
-        if get_pipeline_model_parallel_rank() in [0, 1] and get_expert_data_parallel_rank() == 0:
-            torch.cuda.memory._dump_snapshot(memory_snapshot_path+"/"+"Rank"+str(global_rank)+"_"+RDZV_ID+".pkl")
-        torch.cuda.memory._record_memory_history(enabled=None)
+    # if DUMP_MEMORY_SNAPSHOT:
+    #     from megatron.core.parallel_state import get_pipeline_model_parallel_rank, get_expert_data_parallel_rank
+    #     # we want to use RDZV_ID str as experiment name
+    #     RDZV_ID = os.environ.get('RDZV_ID')
+    #     memory_snapshot_path = os.environ.get('MEMORY_SNAPSHOT_PATH')
+    #     global_rank = torch.distributed.get_rank()
+    #     if get_pipeline_model_parallel_rank() in [0, 1] and get_expert_data_parallel_rank() == 0:
+    #         torch.cuda.memory._dump_snapshot(memory_snapshot_path+"/"+"Rank"+str(global_rank)+"_"+RDZV_ID+".pkl")
+    #     torch.cuda.memory._record_memory_history(enabled=None)
