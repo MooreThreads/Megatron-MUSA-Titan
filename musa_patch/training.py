@@ -88,6 +88,8 @@ except Exception as e:
 
 import megatron.core.parallel_state as parallel_state
 
+from transformer_engine.pytorch.cpu_offload import get_fine_grained_offload_handler
+
 logger = logging.getLogger(__name__)
 
 def throughput_calculator(args, elapsed_time_per_iter, consumed_tokens_per_iter):
@@ -224,6 +226,7 @@ def train_step(forward_step_func, data_iterator,
     """Single training step."""
     args = get_args()
     timers = get_timers()
+    get_fine_grained_offload_handler().num_microbatches = get_num_microbatches()
 
     rerun_state_machine = get_rerun_state_machine()
     while rerun_state_machine.should_run_forward_backward(data_iterator):
@@ -676,8 +679,9 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
     num_floating_point_operations_since_last_log_event = 0.0
 
     num_microbatches = get_num_microbatches()
-    from transformer_engine.pytorch.cpu_offload import get_fine_grained_offload_handler
-    get_fine_grained_offload_handler().num_microbatches = get_num_microbatches()
+
+    get_fine_grained_offload_handler().init_by_config(config)
+    
     eval_duration = 0.0
     eval_iterations = 0
     # Wrap forward_backward_func for Full iteration CUDA graph
