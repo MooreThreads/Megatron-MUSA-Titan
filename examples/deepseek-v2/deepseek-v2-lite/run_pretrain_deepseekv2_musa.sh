@@ -109,6 +109,7 @@ MODEL_ARGS=(
     --swiglu
     --normalization RMSNorm
     --untie-embeddings-and-output-weights
+    --rope-type yarn
     # --cross-entropy-loss-fusion
 )
 
