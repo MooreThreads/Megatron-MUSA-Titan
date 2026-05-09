@@ -491,7 +491,27 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
             )
     if args.num_experts is not None:
         moe_loss_scale = 1 / get_num_microbatches()
-        track_moe_metrics(moe_loss_scale, iteration, writer, wandb_writer, total_loss_dict, args.moe_per_layer_logging, moe_layer_freq=args.moe_layer_freq)
+        track_names = []
+        if "aux_loss" in args.moe_router_load_balancing_type:
+            track_names.append("load_balancing_loss")
+        if "seq_aux_loss" in args.moe_router_load_balancing_type:
+            track_names.append("seq_load_balancing_loss")
+        if args.moe_z_loss_coeff is not None:
+            track_names.append("z_loss")
+        track_moe_metrics(
+            loss_scale=moe_loss_scale,
+            iteration=iteration,
+            writer=writer,
+            wandb_writer=wandb_writer,
+            total_loss_dict=total_loss_dict,
+            per_layer_logging=args.moe_per_layer_logging,
+            force_initialize=True,
+            track_names=track_names,
+            num_layers=args.num_layers,
+            moe_layer_freq=args.moe_layer_freq,
+            mtp_num_layers=args.mtp_num_layers,
+        )
+        # track_moe_metrics(moe_loss_scale, iteration, writer, wandb_writer, total_loss_dict, args.moe_per_layer_logging, moe_layer_freq=args.moe_layer_freq)
 
     if iteration % args.log_interval == 0:
         # HACK(huang.huang): support memory analysis dump
