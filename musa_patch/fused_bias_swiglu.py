@@ -205,4 +205,10 @@ class MusaSwiGLUFunction(torch.autograd.Function):
 
 import megatron.core.fusions.fused_bias_swiglu
 megatron.core.fusions.fused_bias_swiglu.SwiGLUFunction = MusaSwiGLUFunction
-megatron.core.fusions.fused_bias_swiglu.WeightedSwiGLUFunction = TritonWeightedSwiGLUFunction
+
+# HACK (Xiaoteng Cui, 2026.05.11) Noticing the shape (M, N) of input tensor x of WeightedSwiGLUFunction, use Triton kernel here only when (N/2) is the power of 2 and N <= 8192.
+# Usually this "N" is related with "--moe-ffn-hidden-size" or "--moe-shared-expert-intermediate-size"
+import os
+use_TritonWeightedSwiGLU = int(os.getenv("USE_TRITON_WEIGHTED_SWIGLU", 0))
+if use_TritonWeightedSwiGLU:
+    megatron.core.fusions.fused_bias_swiglu.WeightedSwiGLUFunction = TritonWeightedSwiGLUFunction
