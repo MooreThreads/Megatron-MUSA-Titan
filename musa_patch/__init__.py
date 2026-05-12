@@ -209,8 +209,10 @@ def patch_after_import_torch():
     os.environ["NVTE_TORCH_COMPILE"] = "0"
     os.environ["TORCHDYNAMO_DISABLE"] = "1"
 
-    def noop(func):
-        return func
+    def noop(func=None, *args, **kwargs):                                                                  
+        if func is not None:                                                                               
+            return func                                                                                    
+        return lambda f: f
     torch.compile = noop
     torch.jit.script = noop
 
