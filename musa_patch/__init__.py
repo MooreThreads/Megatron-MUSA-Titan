@@ -66,7 +66,8 @@ def patch_before_import_megatron():
 def patch_after_import_torch():
     # 1. Patch for torch.xxx
     torch.cuda.is_available = torch.musa.is_available
-    torch.cuda.current_device = lambda : f'musa:{torch.musa.current_device()}'
+    # torch.cuda.current_device = lambda : f'musa:{torch.musa.current_device()}'
+    torch.cuda.current_device = torch.musa.current_device
     torch.cuda.device_count = torch.musa.device_count
     torch.cuda.set_device = torch.musa.set_device
     torch.cuda.DoubleTensor = torch.musa.DoubleTensor
@@ -155,6 +156,8 @@ def patch_after_import_torch():
     def patched_zeros(*args, **kwargs):
         if 'device' in kwargs and kwargs['device'] == 'cuda':
             kwargs['device'] = 'musa'
+        # elif 'device' in kwargs and str(kwargs['device']).isdigit():
+        #     kwargs['device'] = f"musa:{kwargs['device']}"
         result = original_zeros(*args, **kwargs)
         return result
     torch.zeros = patched_zeros
@@ -165,6 +168,8 @@ def patch_after_import_torch():
     def patched_empty(*args, **kwargs):
         if 'device' in kwargs and kwargs['device'] == 'cuda':
             kwargs['device'] = 'musa'
+        # elif 'device' in kwargs and str(kwargs['device']).isdigit():
+        #     kwargs['device'] = f"musa:{kwargs['device']}"
         result = original_empty(*args, **kwargs)
         return result
     torch.empty = patched_empty
