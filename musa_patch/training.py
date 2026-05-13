@@ -600,7 +600,8 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
                 num_microbatches = get_num_microbatches()
                 report_theoretical_memory(args, num_microbatches=num_microbatches, verbose=True)
             report_memory('(after {} iterations)'.format(iteration))
-            # report_memory_flag = False
+            if int(os.getenv("DISABLE_MEMORY_REPORT", 0)):
+                report_memory_flag = False
         timers.log(timers_to_log, normalizer=args.log_interval)
 
         # log to mlflow
@@ -672,6 +673,8 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
     timers('interval-time', log_level=0).start(barrier=True)
     print_datetime('before the start of training step')
     report_memory_flag = True
+    if int(os.getenv("DISABLE_MEMORY_REPORT", 0)):
+        report_memory_flag = False
     # exit = False
     pre_hook_enabled = False
     should_exit = False
