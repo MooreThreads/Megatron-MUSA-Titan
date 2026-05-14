@@ -75,3 +75,12 @@ class NoColor:
     cyan = ""
     white = ""
     reset = ""
+
+def musa_patched_get_device_arch_version():
+    # """Returns GPU arch version (8: Ampere, 9: Hopper, 10: Blackwell, ...)"""
+    # return torch.cuda.get_device_properties(torch.device("cuda:0")).major
+    """ Returns MT GPU arch version """
+    return torch.musa.get_device_properties(torch.device("musa:0")).major
+
+import megatron.training.utils
+megatron.training.utils.get_device_arch_version = musa_patched_get_device_arch_version
