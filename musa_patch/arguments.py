@@ -60,6 +60,8 @@ def _add_moe_args(parser):
                             'Fp32/fp64 enhances numerical stability, especially with numerous experts. '
                             'The perf impact should be negligible when used with permute fusion. '
                             'None means no changes for dtype.')
+    group.add_argument('--moe-router-fusion', action='store_true',
+                       help='Enable fusion for MoE TopK routing and aux-loss computation. This is only supported in TransformerEngine 2.7.0 and above.')
     group.add_argument('--moe-router-score-function', type=str,
                        choices=['softmax', 'sigmoid'],
                        default='softmax',
