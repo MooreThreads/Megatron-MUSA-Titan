@@ -70,6 +70,10 @@ mkdir -p $WB_PATH
 export PYTORCH_MUSA_ALLOC_CONF="expandable_segments:True"
 export TORCH_MCCL_AVOID_RECORD_STREAMS=1 
 
+export LD_LIBRARY_PATH=/usr/local/musa/lib:$LD_LIBRARY_PATH
+
+export USE_DEEPEP_ACE=1
+
 export NODE_ADDR=$(ifconfig -a|grep inet|grep -v 127.0.0.1|grep -v inet6|awk '{print $2;}'|tr -d "addr:"|head -n 1) # tail for cuda/ head for musa
 export GPUS_PER_NODE=8
 export NUM_NODES=$(cat $HOSTFILE | wc -l)
@@ -90,7 +94,7 @@ DISTRIBUTED_ARGS=(
 )
 
 MODEL_ARGS=(
-    --num-layers 2  # 61 
+    --num-layers 3  # 61 
     --hidden-size 7168
     --num-attention-heads 64
     --seq-length 4096 
@@ -132,7 +136,10 @@ TRAINING_ARGS=(
     --enable-experimental
 
     --recompute-granularity selective
-    --recompute-modules mla_up_proj layernorm moe
+    --recompute-modules mla_up_proj layernorm moe_act
+
+    --offload-moe-fc1-input
+    --offload-moe-fused-swiglu-input
 )
 
 MLA_ARGS=(
@@ -194,12 +201,15 @@ EVAL_AND_LOGGING_ARGS=(
 )
 
 NUM_LAYERS=$(echo "${MODEL_ARGS[@]}" | grep -oP '(?<=--num-layers )\d+')
-NUM_LAYERS_MINUS_ONE=$((NUM_LAYERS - 1))
-MOE_LAYER_FREQ="([0]*1+[1]*${NUM_LAYERS_MINUS_ONE})*1"
+# NUM_LAYERS_MINUS_ONE=$((NUM_LAYERS - 1))
+# MOE_LAYER_FREQ="([0]*1+[1]*${NUM_LAYERS_MINUS_ONE})*1"
+MOE_LAYER_FREQ="([1]*${NUM_LAYERS})*1"
+
 MOE_ARGS=(
     --num-experts 384
     --expert-model-parallel-size $EP_SIZE
-    --moe-token-dispatcher-type alltoall
+    --moe-token-dispatcher-type flex
+    --moe-enable-deepep
     # --moe-router-num-groups 8
     # --moe-router-group-topk 4
     --moe-router-topk 8
@@ -219,9 +229,6 @@ MOE_ARGS=(
 
 TRANSFORMER_ENGINE_ARGS=(
     --transformer-impl transformer_engine
-    --fp8-format e4m3
-    --fp8-param-gather
-    --fp8-recipe mxfp8
 )
     
 MULTI_TOKEN_PREDICTION_ARGS=(

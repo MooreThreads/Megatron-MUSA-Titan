@@ -7,7 +7,7 @@ mkdir -p ./output/$CURRENT_TIME
 TP_SIZE=1
 PP_SIZE=3
 EP_SIZE=8
-WORLD_SIZE=48
+WORLD_SIZE=24
 MICRO_BATCH_SIZE=1
 NUM_MICROBATCHES=32
 (( DP_SIZE = $WORLD_SIZE / ($TP_SIZE * $PP_SIZE) ))
@@ -26,7 +26,7 @@ set -u
   LOG_FILE=./output/$CURRENT_TIME/$EXPNAME.log
   # TOKENIZED_MODEL=/home/dist/musa_tmp_share/dataset/llama3_tokenizer  
   TOKENIZED_MODEL=${DATA_ROOT}/dataset/llama2_dataset/DeepSeek-V3
-  SCRIPT_FILE=./kimi-k2/pretrain_kimi_deepep.sh
+  SCRIPT_FILE=./kimi-k2/pretrain_kimi_3host_deepep_actoffload_swiglufusion.sh
   RDZV_ID=$CURRENT_TIME
 set +u
 
@@ -38,11 +38,6 @@ cmd="bash -c 'cd $WORK_HOME; \
 COUNT=0
 hostlist=$(grep -v '^#\|^$' $HOSTFILE | awk '{print $1}' | xargs)
 hostlen=$(cat $HOSTFILE | wc -l )
-
-for host in ${hostlist[@]}; do
-    ssh $host "pkill -f '/opt/conda/envs/py310/bin/torchrun'" 
-    echo "$host is killed."
-done
 
 COUNT=0
 hostlist=$(grep -v '^#\|^$' $HOSTFILE | awk '{print $1}' | xargs)
