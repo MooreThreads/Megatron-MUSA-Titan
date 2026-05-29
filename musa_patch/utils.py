@@ -84,3 +84,8 @@ def musa_patched_get_device_arch_version():
 
 import megatron.training.utils
 megatron.training.utils.get_device_arch_version = musa_patched_get_device_arch_version
+# arguments.py does `from megatron.training.utils import get_device_arch_version`,
+# binding the original by value at import time; patching the utils module attribute
+# above does not update that copy. Rebind the name in arguments too.
+import megatron.training.arguments
+megatron.training.arguments.get_device_arch_version = musa_patched_get_device_arch_version
