@@ -23,7 +23,7 @@ except ImportError:
 
 def _DeepepManager_get_restored_hidden_states_by_experts(self, hidden_states: torch.Tensor):
         deepep_buffer =  get_buffer(self.group, get_hidden_bytes(hidden_states))
-        ace_hidden_states, _ = deepep_buffer.get_ace_combine_buffer(self.hidden_shape_before_permute[0], self.hidden_shape_before_permute[1], 1, False)
+        ace_hidden_states, _ = deepep_buffer.get_ace_combine_buffer(self.hidden_shape_before_permute[0], self.hidden_shape_before_permute[1], 1, False, buffer_index=0)
 
         if not HAVE_TE or fused_unpermute is None:
             raise ValueError("fused_unpermute is not available. Please install TE >= 2.1.0.")
@@ -40,8 +40,9 @@ def _DeepepManager_get_restored_hidden_states_by_experts(self, hidden_states: to
 def _DeepepManager_get_permuted_hidden_states_by_experts(self, hidden_states: torch.Tensor):
     deepep_buffer =  get_buffer(self.group, get_hidden_bytes(hidden_states))
 
+    buffer_index = 1 if self.config.overlap_moe_expert_parallel_comm else 0
     ace_hidden_states, ace_probs = deepep_buffer.get_ace_combine_buffer(
-        hidden_states.size(0), hidden_states.size(1), self.router_topk, True)
+        hidden_states.size(0), hidden_states.size(1), self.router_topk, True, buffer_index=buffer_index)
 
     self.dispatched_routing_map, self.dispatched_probs = fused_indices_to_multihot(
         self.dispatched_indices, self.dispatched_probs, self.num_local_experts, preallocated_probs_b=ace_probs
