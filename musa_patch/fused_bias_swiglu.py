@@ -149,7 +149,7 @@ class TritonWeightedSwiGLUFunction(torch.autograd.Function):
     def forward(ctx, input, weights, fp8_input_store, fine_grained_offload: bool = False):
         fine_grained_offload_handler = get_fine_grained_offload_handler()
         input_for_backward = input.to(torch.float8_e4m3fn) if fp8_input_store else input
-        if fine_grained_offload and not has_acivation_offloading_param(input_for_backward) and not fine_grained_offload_handler.is_last_2_pipeline_parallel_stage() and not fine_grained_offload_handler.is_last_batch_last_layer():
+        if fine_grained_offload and not has_acivation_offloading_param(input_for_backward) and fine_grained_offload_handler.should_offload():
             set_offloading_param(input_for_backward, 'fine_grained_offloading', 'moe_fused_swiglu_input')
             ctx.tensor_tag = fine_grained_offload_handler.register_offload(input_for_backward)
             ctx.save_for_backward(weights)
@@ -174,7 +174,7 @@ class TritonWeightedSwiGLUFunction(torch.autograd.Function):
         if ctx.tensor_tag != None:
             (weights, ) = ctx.saved_tensors
             input = ctx.input_for_backward
-            assert not fine_grained_offload_handler.is_last_2_pipeline_parallel_stage() and not fine_grained_offload_handler.is_last_batch_last_layer()
+            assert fine_grained_offload_handler.should_offload()
             input = fine_grained_offload_handler.get_reloaded(ctx.tensor_tag)
         else:
             input, weights = ctx.saved_tensors
