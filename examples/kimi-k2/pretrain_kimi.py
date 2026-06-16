@@ -28,7 +28,7 @@ from megatron.core.models.gpt import GPTModel
 from megatron.training import pretrain
 from megatron.core.utils import StragglerDetector
 from megatron.core.transformer.spec_utils import import_module
-from megatron.core.transformer.multi_token_prediction import mtp_on_this_rank
+from megatron.core.transformer.multi_token_prediction import mtp_loss_on_this_rank, mtp_on_this_rank
 from megatron.training.utils import (
     get_batch_on_this_cp_rank,
     get_batch_on_this_tp_rank,
@@ -211,12 +211,20 @@ def get_batch(data_iterator, model=None):
         and getattr(model_config, 'mtp_num_layers', None) is not None
         and mtp_on_this_rank(model_config, ignore_virtual=False, vp_stage=vp_stage)
     )
+    has_mtp_loss = model_config is not None and mtp_loss_on_this_rank(
+        model_config, ignore_virtual=False, vp_stage=vp_stage
+    )
 
     # TODO: this is pretty hacky, find a better way
-    if (not mpu.is_pipeline_first_stage()) and (not mpu.is_pipeline_last_stage()) and (not has_mtp):
+    if (
+        (not mpu.is_pipeline_first_stage())
+        and (not mpu.is_pipeline_last_stage())
+        and (not has_mtp)
+        and (not has_mtp_loss)
+    ):
         return None, None, None, None, None
 
-    if has_mtp and (not mpu.is_pipeline_first_stage()) and (not mpu.is_pipeline_last_stage()):
+    if (has_mtp or has_mtp_loss) and (not mpu.is_pipeline_first_stage()) and (not mpu.is_pipeline_last_stage()):
         args = get_args()
 
         def _broadcast(item):
@@ -230,31 +238,53 @@ def get_batch(data_iterator, model=None):
         if mpu.get_tensor_model_parallel_rank() == 0:
             data = next(data_iterator)
             batch = {
-                'tokens': data['tokens'].cuda(non_blocking=True),
-                'labels': None,
-                'loss_mask': None,
+                'tokens': data['tokens'].cuda(non_blocking=True) if has_mtp else None,
+                'labels': data['labels'].cuda(non_blocking=True) if has_mtp_loss else None,
+                'loss_mask': data['loss_mask'].cuda(non_blocking=True) if has_mtp_loss else None,
                 'attention_mask': None,
-                'position_ids': data['position_ids'].cuda(non_blocking=True),
+                'position_ids': data['position_ids'].cuda(non_blocking=True) if has_mtp else None,
             }
-            _broadcast(batch['tokens'])
-            _broadcast(batch['position_ids'])
+            if has_mtp:
+                _broadcast(batch['tokens'])
+                _broadcast(batch['position_ids'])
+            if has_mtp_loss:
+                _broadcast(batch['labels'])
+                _broadcast(batch['loss_mask'])
         else:
-            tokens = torch.empty(
-                (args.micro_batch_size, args.seq_length),
-                dtype=torch.int64,
-                device=torch.cuda.current_device(),
-            )
-            position_ids = torch.empty(
-                (args.micro_batch_size, args.seq_length),
-                dtype=torch.int64,
-                device=torch.cuda.current_device(),
-            )
-            _broadcast(tokens)
-            _broadcast(position_ids)
+            tokens = None
+            position_ids = None
+            labels = None
+            loss_mask = None
+            if has_mtp:
+                tokens = torch.empty(
+                    (args.micro_batch_size, args.seq_length),
+                    dtype=torch.int64,
+                    device=torch.cuda.current_device(),
+                )
+                position_ids = torch.empty(
+                    (args.micro_batch_size, args.seq_length),
+                    dtype=torch.int64,
+                    device=torch.cuda.current_device(),
+                )
+                _broadcast(tokens)
+                _broadcast(position_ids)
+            if has_mtp_loss:
+                labels = torch.empty(
+                    (args.micro_batch_size, args.seq_length),
+                    dtype=torch.int64,
+                    device=torch.cuda.current_device(),
+                )
+                loss_mask = torch.empty(
+                    (args.micro_batch_size, args.seq_length),
+                    dtype=torch.float32,
+                    device=torch.cuda.current_device(),
+                )
+                _broadcast(labels)
+                _broadcast(loss_mask)
             batch = {
                 'tokens': tokens,
-                'labels': None,
-                'loss_mask': None,
+                'labels': labels,
+                'loss_mask': loss_mask,
                 'attention_mask': None,
                 'position_ids': position_ids,
             }
