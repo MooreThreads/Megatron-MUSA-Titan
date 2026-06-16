@@ -28,6 +28,7 @@ from megatron.core.models.gpt import GPTModel
 from megatron.training import pretrain
 from megatron.core.utils import StragglerDetector
 from megatron.core.transformer.spec_utils import import_module
+from megatron.core.transformer.multi_token_prediction import mtp_on_this_rank
 from megatron.training.utils import (
     get_batch_on_this_cp_rank,
     get_batch_on_this_tp_rank,
@@ -39,10 +40,43 @@ from megatron.core.models.gpt.gpt_layer_specs import (
     get_gpt_decoder_block_spec,
     get_gpt_layer_local_spec,
     get_gpt_layer_with_transformer_engine_spec,
+    get_gpt_mtp_block_spec,
 )
 
 
 stimer = StragglerDetector()
+
+def _get_transformer_layer_spec(use_te, config):
+    """Get transformer layer specification based on configuration.
+
+    Args:
+        use_te (bool): Whether to use Transformer Engine
+        config: Model configuration
+
+    Returns:
+        transformer_layer_spec: The transformer layer specification
+    """
+    args = get_args()
+    if use_te:
+        return get_gpt_layer_with_transformer_engine_spec(
+            args.num_experts,
+            args.moe_grouped_gemm,
+            args.qk_layernorm,
+            args.multi_latent_attention,
+            args.moe_use_legacy_grouped_gemm,
+            qk_l2_norm=args.qk_l2_norm,
+            use_kitchen=config.use_kitchen,
+        )
+    else:
+        return get_gpt_layer_local_spec(
+            args.num_experts,
+            args.moe_grouped_gemm,
+            args.qk_layernorm,
+            args.multi_latent_attention,
+            args.moe_use_legacy_grouped_gemm,
+            normalization=args.normalization,
+            use_kitchen=config.use_kitchen,
+        )
 
 def model_provider(pre_process=True, post_process=True, vp_stage=None) -> Union[GPTModel, megatron.legacy.model.GPTModel]:
     """Builds the model.
@@ -122,6 +156,22 @@ def model_provider(pre_process=True, post_process=True, vp_stage=None) -> Union[
             except:
                 raise RuntimeError("--fp8-param-gather requires `fp8_model_init` from TransformerEngine, but not found.")
 
+        mtp_block_spec = None
+        if args.mtp_num_layers is not None:
+            if hasattr(transformer_layer_spec, 'layer_specs') and len(transformer_layer_spec.layer_specs) == 0:
+                # Get the decoder layer spec explicitly if no decoder layer in the last stage,
+                # Only happens with block spec (TransformerBlockSubmodules) when using MoE.
+                transformer_layer_spec_for_mtp = _get_transformer_layer_spec(use_te, config)
+            else:
+                transformer_layer_spec_for_mtp = transformer_layer_spec
+
+            mtp_block_spec = get_gpt_mtp_block_spec(
+                config,
+                transformer_layer_spec_for_mtp,
+                use_transformer_engine=use_te,
+                vp_stage=vp_stage,
+            )
+
         with build_model_context(**build_model_context_args):
             model = GPTModel(
                 config=config,
@@ -137,21 +187,80 @@ def model_provider(pre_process=True, post_process=True, vp_stage=None) -> Union[
                 rotary_percent=args.rotary_percent,
                 rotary_base=args.rotary_base,
                 rope_scaling=args.use_rope_scaling,
+                mtp_block_spec=mtp_block_spec,
                 vp_stage=vp_stage,
             )
 
     return model
 
 
-def get_batch(data_iterator):
+def get_batch(data_iterator, model=None):
     """Generate a batch."""
 
+    model_config = None
+    vp_stage = None
+    if model is not None:
+        unwrapped_model = model
+        while hasattr(unwrapped_model, 'module'):
+            unwrapped_model = unwrapped_model.module
+        model_config = getattr(unwrapped_model, 'config', None)
+        vp_stage = getattr(unwrapped_model, 'vp_stage', None)
+
+    has_mtp = (
+        model_config is not None
+        and getattr(model_config, 'mtp_num_layers', None) is not None
+        and mtp_on_this_rank(model_config, ignore_virtual=False, vp_stage=vp_stage)
+    )
+
     # TODO: this is pretty hacky, find a better way
-    if (not mpu.is_pipeline_first_stage()) and (not mpu.is_pipeline_last_stage()):
+    if (not mpu.is_pipeline_first_stage()) and (not mpu.is_pipeline_last_stage()) and (not has_mtp):
         return None, None, None, None, None
 
-    # get batches based on the TP rank you are on
-    batch = get_batch_on_this_tp_rank(data_iterator)
+    if has_mtp and (not mpu.is_pipeline_first_stage()) and (not mpu.is_pipeline_last_stage()):
+        args = get_args()
+
+        def _broadcast(item):
+            if item is not None:
+                torch.distributed.broadcast(
+                    item,
+                    mpu.get_tensor_model_parallel_src_rank(),
+                    group=mpu.get_tensor_model_parallel_group(),
+                )
+
+        if mpu.get_tensor_model_parallel_rank() == 0:
+            data = next(data_iterator)
+            batch = {
+                'tokens': data['tokens'].cuda(non_blocking=True),
+                'labels': None,
+                'loss_mask': None,
+                'attention_mask': None,
+                'position_ids': data['position_ids'].cuda(non_blocking=True),
+            }
+            _broadcast(batch['tokens'])
+            _broadcast(batch['position_ids'])
+        else:
+            tokens = torch.empty(
+                (args.micro_batch_size, args.seq_length),
+                dtype=torch.int64,
+                device=torch.cuda.current_device(),
+            )
+            position_ids = torch.empty(
+                (args.micro_batch_size, args.seq_length),
+                dtype=torch.int64,
+                device=torch.cuda.current_device(),
+            )
+            _broadcast(tokens)
+            _broadcast(position_ids)
+            batch = {
+                'tokens': tokens,
+                'labels': None,
+                'loss_mask': None,
+                'attention_mask': None,
+                'position_ids': position_ids,
+            }
+    else:
+        # get batches based on the TP rank you are on
+        batch = get_batch_on_this_tp_rank(data_iterator)
 
     # slice batch along sequence dimension for context parallelism
     batch = get_batch_on_this_cp_rank(batch)
@@ -243,7 +352,7 @@ def forward_step(data_iterator, model: GPTModel, return_schedule_plan: bool = Fa
     global stimer
     with stimer(bdata=True):
         tokens, labels, loss_mask, attention_mask, position_ids = get_batch(
-            data_iterator)
+            data_iterator, model)
     timers('batch-generator').stop()
 
     with stimer:
@@ -267,8 +376,9 @@ def forward_step(data_iterator, model: GPTModel, return_schedule_plan: bool = Fa
 
 
 def is_dataset_built_on_rank():
+    args = get_args()
     return (
-        mpu.is_pipeline_first_stage() or mpu.is_pipeline_last_stage()
+        mpu.is_pipeline_first_stage() or mpu.is_pipeline_last_stage() or args.mtp_num_layers is not None
     ) and mpu.get_tensor_model_parallel_rank() == 0
 
 
