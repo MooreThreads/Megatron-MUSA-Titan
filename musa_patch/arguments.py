@@ -191,6 +191,8 @@ def _add_moe_args(parser):
                         help="Whether to offload moe (routed experts) fc1 input to cpu memory")
     group.add_argument('--offload-moe-fused-swiglu-input', action='store_true',
                     help="Whether to offload moe (routed experts) fused swiglu's input (fc1 output) to cpu memory")
+    group.add_argument('--disable-pre-offload-moe-fused-swiglu-input', action='store_true',
+                    help="Whether to pre-offload moe (routed experts) fused swiglu's input (fc1 output) to cpu memory")
     ## HACK(xiaoteng.cui)
     
     return parser
@@ -291,6 +293,7 @@ def core_transformer_config_from_args(args, config_class=None):
     ##HACK(xiaoteng.cui)
     config_instance.offload_moe_fc1_input = args.offload_moe_fc1_input
     config_instance.offload_moe_fused_swiglu_input = args.offload_moe_fused_swiglu_input
+    config_instance.pre_offload_moe_fused_swiglu_input = not args.disable_pre_offload_moe_fused_swiglu_input
     if config_instance.offload_moe_fc1_input or config_instance.offload_moe_fused_swiglu_input:
         assert config_instance.pipeline_model_parallel_size >= 3, \
             f"Activation offload must work with PP size >= 3, but get PP size == {config_instance.pipeline_model_parallel_size}. For an obvious GPU memory optimization performance, we recommend PP size >= 5."
