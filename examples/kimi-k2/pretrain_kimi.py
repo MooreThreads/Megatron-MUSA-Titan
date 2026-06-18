@@ -103,11 +103,42 @@ def model_provider(pre_process=True, post_process=True, vp_stage=None) -> Union[
             trace_alloc_record_context=True)
         
     print_rank_0('building GPT model ...')
+       
+    # === Save hybrid AC sentinel before config creation ===
+    # Megatron validation rejects recompute_num_layers=0 with selective granularity,
+    # so we temporarily set it to None to pass validation, then apply hybrid logic after.
+    _hybrid_ac_sentinel = (getattr(args, 'recompute_granularity', None) == 'selective'
+                           and getattr(args, 'recompute_num_layers', None) == 0)
+    if _hybrid_ac_sentinel:
+        args.recompute_num_layers = None  # Temporarily set to None to pass Megatron validation
+
     # Experimental loading arguments from yaml
     if args.yaml_cfg is not None:
         config = core_transformer_config_from_yaml(args, "language_model")
     else:
         config = core_transformer_config_from_args(args)
+
+    # === Per-stage AC override: detect hybrid mode via saved sentinel ===
+    if _hybrid_ac_sentinel:
+        pp_rank = mpu.get_pipeline_model_parallel_rank()
+        pp_size = mpu.get_pipeline_model_parallel_world_size()
+        if pp_rank == 0:
+            # pp_rank==0: full AC on all layers except the last one (block method, skip last layer)
+            num_layers_in_first_stage = args.decoder_first_pipeline_num_layers
+            config.recompute_granularity = 'full'
+            config.recompute_method = 'block'
+            config.recompute_num_layers = max(1, num_layers_in_first_stage - 1)
+            print_rank_0(f'[AC] PP rank {pp_rank}: hybrid mode -> full AC (block, skip last layer, '
+                         f'recompute_num_layers={config.recompute_num_layers}/{num_layers_in_first_stage})')
+        elif pp_rank == pp_size - 1:
+            # Last pp rank: no recomputation at all
+            config.recompute_granularity = None
+            config.recompute_method = None
+            config.recompute_num_layers = None
+            print_rank_0(f'[AC] PP rank {pp_rank}: hybrid mode -> no recomputation')
+        else:
+            # Middle pp ranks: selective AC (already set from args)
+            print_rank_0(f'[AC] PP rank {pp_rank}: hybrid mode -> selective AC')
 
     if args.use_legacy_models:
         model = megatron.legacy.model.GPTModel(
