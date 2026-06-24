@@ -159,14 +159,40 @@ class TorchDistLoadShardedStrategy_patched(TorchDistLoadShardedStrategy):
         return mcore_state_dict
 
 
+class TorchDistSaveShardedStrategy_patched(TorchDistSaveShardedStrategy):
+    def save(self, sharded_state_dict: ShardedStateDict, checkpoint_dir: Path):
+        """Run torch_dist save synchronously in the training process.
+
+        The upstream sync wrapper still schedules the async request through a
+        forked caller. On this MUSA stack, that fork can hang during checkpoint
+        save, so execute the generated request directly.
+        """
+        async_request = self.async_save(sharded_state_dict, checkpoint_dir)
+        async_fn_args = list(async_request.async_fn_args)
+        if async_request.async_fn is not None:
+            if async_request.preload_fn:
+                async_fn_args[1] = async_request.preload_fn()
+            torch.cuda.synchronize()
+            async_request.async_fn(
+                *async_fn_args,
+                **async_request.async_fn_kwargs,
+            )
+        torch.distributed.barrier()
+        for finalize_fn in async_request.finalize_fns:
+            finalize_fn()
+
+
 # patch
 megatron.core.dist_checkpointing.strategies.torch.TorchDistLoadShardedStrategy = TorchDistLoadShardedStrategy_patched
+megatron.core.dist_checkpointing.strategies.torch.TorchDistSaveShardedStrategy = TorchDistSaveShardedStrategy_patched
 
-from megatron.core.dist_checkpointing.strategies import torch
+from megatron.core.dist_checkpointing.strategies import torch as strategy_torch
 from .state_dict_saver import save_state_dict_async_finalize_patched, save_state_dict_async_plan_patched
-torch.save_state_dict_async_finalize = save_state_dict_async_finalize_patched
-torch.save_state_dict_async_plan = save_state_dict_async_plan_patched
+strategy_torch.TorchDistSaveShardedStrategy = TorchDistSaveShardedStrategy_patched
+strategy_torch.save_state_dict_async_finalize = save_state_dict_async_finalize_patched
+strategy_torch.save_state_dict_async_plan = save_state_dict_async_plan_patched
 
 import sys
+sys.modules['megatron.core.dist_checkpointing.strategies.torch'].TorchDistSaveShardedStrategy = TorchDistSaveShardedStrategy_patched
 sys.modules['megatron.core.dist_checkpointing.strategies.torch'].save_state_dict_async_finalize = save_state_dict_async_finalize_patched
 sys.modules['megatron.core.dist_checkpointing.strategies.torch'].save_state_dict_async_plan = save_state_dict_async_plan_patched
