@@ -13,6 +13,9 @@ def fwdbwd_epoverlap_run(
         pre_backward=None,
         post_forward=None,
         post_backward=None,
+        f_microbatch_id_layer_id=None,
+        b_microbatch_id_layer_id=None,
+
     ):
     return original_fwdbwd_epoverlap_run(
         f_schedule_plan,
@@ -22,6 +25,8 @@ def fwdbwd_epoverlap_run(
         pre_backward,
         post_forward,
         post_backward,
+        f_microbatch_id_layer_id=f_microbatch_id_layer_id,
+        b_microbatch_id_layer_id=b_microbatch_id_layer_id,
     )
 
 
