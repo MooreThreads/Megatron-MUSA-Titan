@@ -19,15 +19,15 @@ Shape = Union[List[int], torch.Size]
 
 @record_function_decorator
 def recv_forward(
-        self, tensor_shapes, is_first_stage: bool
+        self, tensor_shapes, is_first_stage: bool, **kwargs
     ) -> Union[torch.Tensor, list[torch.Tensor]]:
-    return original_recv_forward(self, tensor_shapes, is_first_stage)
+    return original_recv_forward(self, tensor_shapes, is_first_stage, **kwargs)
 
 @record_function_decorator
 def recv_backward(
-        self, tensor_shapes, is_last_stage: bool
+        self, tensor_shapes, is_last_stage: bool, **kwargs
     ) -> Union[torch.Tensor, list[torch.Tensor]]:
-    return original_recv_backward(self, tensor_shapes, is_last_stage)
+    return original_recv_backward(self, tensor_shapes, is_last_stage, **kwargs)
 
 @record_function_decorator
 def send_forward(self, output_tensors, is_last_stage: bool) -> None:
@@ -56,8 +56,11 @@ def send_forward_recv_forward(
         recv_prev: bool,
         tensor_shape: Shape,
         overlap_p2p_comm: bool = False,
+        **kwargs,
     ) -> torch.Tensor:
-    return original_send_forward_recv_forward(self, output_tensor, recv_prev, tensor_shape, overlap_p2p_comm)
+    return original_send_forward_recv_forward(
+        self, output_tensor, recv_prev, tensor_shape, overlap_p2p_comm, **kwargs
+    )
 
 @record_function_decorator
 def send_backward_recv_backward(
@@ -66,8 +69,11 @@ def send_backward_recv_backward(
         recv_next: bool,
         tensor_shape: Shape,
         overlap_p2p_comm: bool = False,
+        **kwargs,
     ) -> torch.Tensor:
-    return original_send_backward_recv_backward(self, input_tensor_grad, recv_next, tensor_shape, overlap_p2p_comm)
+    return original_send_backward_recv_backward(
+        self, input_tensor_grad, recv_next, tensor_shape, overlap_p2p_comm, **kwargs
+    )
 
 @record_function_decorator
 def send_forward_backward_recv_forward_backward(
@@ -77,8 +83,11 @@ def send_forward_backward_recv_forward_backward(
         recv_prev: bool,
         recv_next: bool,
         tensor_shape: Shape,
+        **kwargs,
     ) -> torch.Tensor:
-    return original_send_forward_backward_recv_forward_backward(self, output_tensor, input_tensor_grad, recv_prev, recv_next, tensor_shape)
+    return original_send_forward_backward_recv_forward_backward(
+        self, output_tensor, input_tensor_grad, recv_prev, recv_next, tensor_shape, **kwargs
+    )
 
 enable_profiler = int(os.getenv("ENABLE_PROFILER", 0))
 if enable_profiler:
