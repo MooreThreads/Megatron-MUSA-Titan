@@ -495,6 +495,21 @@ def train_valid_test_datasets_provider(train_val_test_num_samples):
 
     return train_ds, valid_ds, test_ds
 
+from megatron.core.transformer.multi_token_prediction import get_mtp_ranks
+
+def get_embedding_ranks(pp_ranks: List[int]):
+    """Get the embedding ranks."""
+    embedding_ranks = [pp_ranks[0]]
+    if len(pp_ranks) > 1:
+        args = get_args()
+        if not args.untie_embeddings_and_output_weights:
+            embedding_ranks.append(pp_ranks[-1])
+        config = core_transformer_config_from_args(args)
+        mtp_ranks = get_mtp_ranks(pp_ranks, config)
+        embedding_ranks.extend(mtp_ranks)
+    embedding_ranks = list(set(embedding_ranks))
+    embedding_ranks = sorted(embedding_ranks)
+    return embedding_ranks
 
 if __name__ == "__main__":
 
@@ -509,6 +524,7 @@ if __name__ == "__main__":
         ModelType.encoder_or_decoder,
         forward_step,
         args_defaults={'tokenizer_type': 'GPT2BPETokenizer'},
+        get_embedding_ranks=get_embedding_ranks,
     )
 
     # if DUMP_MEMORY_SNAPSHOT:

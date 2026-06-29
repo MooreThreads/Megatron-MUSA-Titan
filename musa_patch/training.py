@@ -10,6 +10,7 @@ import torch.distributed
 from megatron.core import mpu
 
 from megatron.core.transformer.moe.moe_utils import track_moe_metrics
+from megatron.core.transformer.multi_token_prediction import MTPLossLoggingHelper
 from megatron.training.global_vars import (
     get_args,
     get_timers,
@@ -221,6 +222,7 @@ def need_mlflow():
             torch.distributed.get_rank() == (torch.distributed.get_world_size() - 1)
 
 
+
 def train_step(forward_step_func, data_iterator,
                model, optimizer, opt_param_scheduler, config, forward_backward_func):
     """Single training step."""
@@ -259,7 +261,6 @@ def train_step(forward_step_func, data_iterator,
         unwrapped_model.cancel_gradients_last_layer(args.curr_iteration)
 
     # Update parameters.
-
     timers('optimizer', log_level=1).start(barrier=args.barrier_with_L1_time)
     update_successful, grad_norm, num_zeros_in_grad = optimizer.step()
     timers('optimizer').stop()
@@ -513,6 +514,18 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
         )
         # track_moe_metrics(moe_loss_scale, iteration, writer, wandb_writer, total_loss_dict, args.moe_per_layer_logging, moe_layer_freq=args.moe_layer_freq)
 
+    if args.mtp_num_layers is not None:
+        mtp_loss_scale = 1 / get_num_microbatches()
+        MTPLossLoggingHelper.track_mtp_metrics(
+            mtp_loss_scale,
+            iteration,
+            writer,
+            wandb_writer,
+            total_loss_dict,
+            log_to_stdout=iteration % args.log_interval == 0,
+            reduce_for_logging=iteration % args.log_interval == 0,
+        )
+
     if iteration % args.log_interval == 0:
         # HACK(huang.huang): support memory analysis dump
         if args.record_memory_history:
@@ -637,10 +650,28 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
 
     # Tracking loss.
     total_loss_dict = {}
-
+    if os.environ.get("ENABLE_HOOK", "0") == "1":
+        from musa_patch.debug_tools import DebugHookManager
+        manager = DebugHookManager(
+            enable_backward_hook=True,
+            enable_forward_hook=True,
+            enable_log_to_file=True,
+            enable_log_online=False,
+            valid_gradnorm_threads=10000,
+            save_dir=args.tensorboard_dir
+        )
+        manager.register_modulewise_hooks(model[0])
+    if torch.distributed.get_rank() % 8 == 0:
+        print(model)
+        
     # Iterations.
     iteration = args.iteration
-
+    # Make sure rerun_state_machine has the right iteration loaded from checkpoint.
+    rerun_state_machine = get_rerun_state_machine()
+    if rerun_state_machine.current_iteration != iteration:
+        print_rank_0(f"Overwriting rerun_state_machine.current_iteration from "
+                     f"{rerun_state_machine.current_iteration} to {iteration}...")
+        rerun_state_machine.current_iteration = iteration
     # Track E2E metrics at the start of training
     one_logger_utils.on_train_start(iteration=iteration, consumed_train_samples=args.consumed_train_samples,
                                     train_samples=args.train_samples, seq_length=args.seq_length,
@@ -966,7 +997,7 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                     ft_integration.get_rank_monitor_client(
                         ft_integration.StateMachineActions.EVAL_HEARTBEAT).send_heartbeat()
 
-            # Miscellaneous post-training-step functions (e.g., FT heartbeats, GC).
+        # Miscellaneous post-training-step functions (e.g., FT heartbeats, GC).
             # Some of these only happen at specific iterations.
             post_training_step_callbacks(model, optimizer, opt_param_scheduler, iteration, prof,
                                         num_floating_point_operations_since_last_log_event)
