@@ -201,6 +201,123 @@ def unpack_hook(t):
 
 import subprocess
 import re
+import time
+
+
+def _safe_int(value, default=None):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _visible_device_count():
+    for env_name in ("MUSA_VISIBLE_DEVICES", "CUDA_VISIBLE_DEVICES"):
+        visible_devices = os.getenv(env_name)
+        if visible_devices is None:
+            continue
+        visible_devices = visible_devices.strip()
+        if not visible_devices or visible_devices == "-1":
+            return 0
+        return len([x for x in visible_devices.split(",") if x.strip()])
+    return None
+
+
+def _get_current_local_rank(expected_local_world_size=8):
+    local_rank = _safe_int(os.getenv("LOCAL_RANK"))
+    if local_rank is not None:
+        return local_rank
+
+    for env_name in ("OMPI_COMM_WORLD_LOCAL_RANK", "MV2_COMM_WORLD_LOCAL_RANK"):
+        local_rank = _safe_int(os.getenv(env_name))
+        if local_rank is not None:
+            return local_rank
+
+    try:
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            local_world_size = _get_current_local_world_size(expected_local_world_size)
+            if local_world_size:
+                return torch.distributed.get_rank() % local_world_size
+    except Exception:
+        pass
+
+    return None
+
+
+def _get_current_local_world_size(expected_local_world_size=8):
+    for env_name in ("LOCAL_WORLD_SIZE", "GPUS_PER_NODE"):
+        local_world_size = _safe_int(os.getenv(env_name))
+        if local_world_size is not None:
+            return local_world_size
+
+    visible_count = _visible_device_count()
+    if visible_count is not None:
+        return visible_count
+
+    try:
+        if torch.distributed.is_available() and torch.distributed.is_initialized():
+            world_size = torch.distributed.get_world_size()
+            if world_size >= expected_local_world_size:
+                return expected_local_world_size
+    except Exception:
+        pass
+
+    return None
+
+
+def _is_current_8gpu_local_rank0(expected_local_world_size=8):
+    local_rank = _get_current_local_rank(expected_local_world_size)
+    if local_rank != 0:
+        return False
+
+    local_world_size = _get_current_local_world_size(expected_local_world_size)
+    return local_world_size == expected_local_world_size
+
+
+def print_8gpu_node_cpu_memory_usage_on_local_rank0(
+    tag="",
+    expected_local_world_size=8,
+    max_cmd_len=None,
+):
+    """
+    Print top's CPU memory view for python processes on the current 8-GPU node.
+
+    This function is intentionally silent on non-local-rank-0 processes.  It
+    returns True when it prints and False when the current process is not the
+    local rank 0 process of an expected_local_world_size node.
+    """
+    if not _is_current_8gpu_local_rank0(expected_local_world_size):
+        return False
+
+    timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+    tag_text = f" tag={tag}" if tag else ""
+    lines = [
+        f"[cpu_mem][{timestamp}] local_rank0 pid={os.getpid()}{tag_text} "
+        f"top python process CPU memory:"
+    ]
+
+    cmd = (
+        "top -b -n 1 -w 512 -o RES | "
+        "awk 'NR==7 || (NR>7 && tolower($0) ~ /python/) {print}'"
+    )
+    result = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True)
+    if result.returncode != 0:
+        cmd = "top -b -n 1 | awk 'NR==7 || (NR>7 && tolower($0) ~ /python/) {print}'"
+        result = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True)
+
+    output = result.stdout.strip()
+    if output:
+        lines.append(output)
+    else:
+        lines.append("[cpu_mem] no python process found in top output.")
+
+    print("\n".join(lines), flush=True)
+
+    return True
+
+
+def print_node_cpu_memory_usage_on_local_rank0(*args, **kwargs):
+    return print_8gpu_node_cpu_memory_usage_on_local_rank0(*args, **kwargs)
 
     
 def get_max_gpu0_to_7_mem_usage():

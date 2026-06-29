@@ -528,12 +528,12 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
 
     if iteration % args.log_interval == 0:
         # HACK(huang.huang): support memory analysis dump
-        if args.record_memory_history:
-            snapshot = torch.cuda.memory._snapshot()
-            from pickle import dump
-            os.makedirs("./memory_snapshot", exist_ok=True)
-            with open(f"./memory_snapshot/iter{iteration}-{args.memory_snapshot_path}", 'wb') as f:
-                dump(snapshot, f)
+        # if args.record_memory_history:
+        #     snapshot = torch.cuda.memory._snapshot()
+        #     from pickle import dump
+        #     os.makedirs("./memory_snapshot", exist_ok=True)
+        #     with open(f"./memory_snapshot/iter{iteration}-{args.memory_snapshot_path}", 'wb') as f:
+        #         dump(snapshot, f)
         ## HACK(huang.huang)
 
         elapsed_time = timers('interval-time').elapsed(barrier=True)
