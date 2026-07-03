@@ -221,6 +221,14 @@ def need_mlflow():
     return os.getenv("MLFLOW_TRACKING_URI", default=None) and \
             torch.distributed.get_rank() == (torch.distributed.get_world_size() - 1)
 
+def _print_loss(local_loss):
+    return (
+        int(os.getenv("PRINT_GRAD_NORM_LOCAL_LOSS", 0)) == 1
+        and (
+            local_loss.item() >= int(os.getenv("PRINT_LOCAL_LOSS_THRESHOLD", 100))
+            or torch.isnan(local_loss).item()
+        )
+    )
 
 
 def train_step(forward_step_func, data_iterator,
@@ -307,12 +315,21 @@ def train_step(forward_step_func, data_iterator,
                     reduce_data = [sum([v[key][0] for v in losses_reduced])] # get the sum of the losses of all microbatches
                     reduce_data.extend([v[key][1] for v in losses_reduced]) # get the token-num of all microbatches
                     reduce_data = torch.stack(reduce_data)
+                    local_numerator = reduce_data[0]
+                    local_denominator = sum(reduce_data[1:])
+
+                    local_loss = local_numerator / local_denominator.clamp(min=1)
+                    if _print_loss(local_loss):
+                        print(f"[pre-dp-reduce loss info] local_loss={local_loss.item()}")
                     torch.distributed.all_reduce(reduce_data, group=mpu.get_data_parallel_group()) # reduce the losses-sum and token-num from all dp-ranks
                     numerator = reduce_data[0]
                     denominator = sum(reduce_data[1:])
                 else:
                     numerator = sum([v[key] for v in losses_reduced])
                     denominator = len(losses_reduced)
+                    local_loss = numerator / denominator
+                    if _print_loss(local_loss):
+                        print(f"[pre-dp-reduce loss info] local_loss={local_loss.item()}")
                     torch.distributed.all_reduce(numerator, group=mpu.get_data_parallel_group())    # reduce the losses-sum from all dp-ranks
             # HACK(xuerong.huang): Reduce the report loss(loss_reduced) on the last training step of multi-microbatches.
             else:
