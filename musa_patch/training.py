@@ -335,6 +335,9 @@ def train_step(forward_step_func, data_iterator,
     return {}, skipped_iter, should_checkpoint, should_exit, exit_code, grad_norm, num_zeros_in_grad
 
 
+from .dummy_warmup import maybe_run_dummy_warmup
+
+
 def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_rate, iteration,
                  loss_scale, report_memory_flag, skipped_iter,
                  grad_norm, params_norm, num_zeros_in_grad):
@@ -666,12 +669,15 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
         
     # Iterations.
     iteration = args.iteration
-    # Make sure rerun_state_machine has the right iteration loaded from checkpoint.
+    # Make sure rerun_state_machine reports the global iteration restored from checkpoint.
     rerun_state_machine = get_rerun_state_machine()
     if rerun_state_machine.current_iteration != iteration:
-        print_rank_0(f"Overwriting rerun_state_machine.current_iteration from "
-                     f"{rerun_state_machine.current_iteration} to {iteration}...")
+        print_rank_0(
+            f"Overwriting rerun_state_machine.current_iteration from "
+            f"{rerun_state_machine.current_iteration} to {iteration}..."
+        )
         rerun_state_machine.current_iteration = iteration
+
     # Track E2E metrics at the start of training
     one_logger_utils.on_train_start(iteration=iteration, consumed_train_samples=args.consumed_train_samples,
                                     train_samples=args.train_samples, seq_length=args.seq_length,
@@ -804,6 +810,15 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
     with maybe_enable_profiling(
         args, global_step=iteration
     ) as torch_profiler:
+        maybe_run_dummy_warmup(
+            forward_step_func,
+            train_data_iterator,
+            model,
+            optimizer,
+            config,
+            forward_backward_func,
+        )
+
         while iteration < args.train_iters:
             if args.profile and torch.distributed.get_rank() in args.profile_ranks:
                 if args.use_pytorch_profiler:
