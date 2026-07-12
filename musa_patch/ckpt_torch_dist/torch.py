@@ -76,6 +76,19 @@ def _restore_dict_types(x: Union[dict, list, Any], keys_template: Union[dict, li
         for x_val, templ_val in zip(x, keys_template):
             _restore_dict_types(x_val, templ_val)
 
+
+def _destroy_process_group(group):
+    """Destroy a process group, unwrapping Slime's reloadable group wrapper if present."""
+    import torch.distributed as dist
+
+    raw_group = getattr(group, "group", group)
+    if raw_group is None:
+        return
+    dist.destroy_process_group(raw_group)
+    if raw_group is not group:
+        group.group = None
+
+
 class TorchDistLoadShardedStrategy_patched(TorchDistLoadShardedStrategy):
     def load(self, sharded_state_dict: ShardedStateDict, checkpoint_dir: Path) -> StateDict:
         """Translates MCore ShardedTensors to PyT ShardedTensors & loads from PyT Distributed fmt.
@@ -126,15 +139,17 @@ class TorchDistLoadShardedStrategy_patched(TorchDistLoadShardedStrategy):
         logger.debug("MUSA DEBUG: torch patch works! destroy temp group in load")
         import torch.distributed as dist
         group_temp = dist.new_group(ranks=None, backend="mccl")
-        checkpoint.load_state_dict(
-            pyt_state_dict,
-            fsr,process_group=group_temp,
-            planner=MCoreLoadPlanner(
-                shapes_validation_sharded_tensors=flexible_shape_sharded_tensors,
-                allow_shape_mismatch_sharded_tensors=allow_shape_mismatch_sharded_tensors,
-            ),
-        )
-        dist.destroy_process_group(group_temp)
+        try:
+            checkpoint.load_state_dict(
+                pyt_state_dict,
+                fsr, process_group=group_temp,
+                planner=MCoreLoadPlanner(
+                    shapes_validation_sharded_tensors=flexible_shape_sharded_tensors,
+                    allow_shape_mismatch_sharded_tensors=allow_shape_mismatch_sharded_tensors,
+                ),
+            )
+        finally:
+            _destroy_process_group(group_temp)
 
         self.cached_global_metadata = (
             fsr.read_metadata()
