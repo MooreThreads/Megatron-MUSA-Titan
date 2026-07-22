@@ -1,35 +1,6 @@
 from torch.distributed.checkpoint.utils import _DistWrapper, _get_failure_dict
 from megatron.core.dist_checkpointing.strategies.state_dict_saver import *
 
-def _create_object_collective_process_group(process_group):
-    if process_group is not None:
-        return process_group, None
-    if (
-        not dist.is_available()
-        or not dist.is_initialized()
-        or dist.get_world_size() == 1
-        or not dist.is_gloo_available()
-    ):
-        return process_group, None
-
-    group = dist.new_group(ranks=list(range(dist.get_world_size())), backend="gloo")
-    logger.debug("created temporary gloo process group for checkpoint object collectives")
-    return group, group
-
-
-def _is_gloo_process_group(process_group):
-    try:
-        return str(dist.get_backend(process_group)).lower() == "gloo"
-    except Exception:
-        return False
-
-
-def _collective_status_tensor_device(process_group):
-    if _is_gloo_process_group(process_group):
-        return torch.device("cpu")
-    return torch.cuda.current_device()
-
-
 def _compare_dataclasses(obj1, obj2):
     if type(obj1) != type(obj2):
         return f"Objects are of different types: {type(obj1)} and {type(obj2)}"
@@ -95,9 +66,13 @@ def save_state_dict_async_plan_patched(
     if cached_ckpt_structure:
         cached_central_plan, cached_local_plan, validated_cache_reuse = cached_ckpt_structure
 
-    process_group, object_group_to_destroy = _create_object_collective_process_group(process_group)
     rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
     dist_wrapper = _DistWrapper(process_group, True, coordinator_rank)
+    if rank == 0:
+        logger.warning(
+            "checkpoint object collective route: default MCCL group, "
+            "plan=all_gather_object, finalize=all_gather_object"
+        )
     if planner is None:
         planner = DefaultSavePlanner()
     assert planner is not None
@@ -170,7 +145,7 @@ def save_state_dict_async_plan_patched(
     end = time()
     logger.debug(f"{time()} rank: {rank}, write(async) time: {end - start}")
     return (
-        (storage_writer, global_metadata, dist_wrapper, object_group_to_destroy),
+        (storage_writer, global_metadata, dist_wrapper),
         central_plan,
         local_plan,
         cached_central_plan == central_plan,
@@ -214,7 +189,7 @@ def verify_global_md_reuse(
         all_results = torch.tensor(
             [local_verify_reuse],
             dtype=torch.int,
-            device=_collective_status_tensor_device(dist_wrapper.group),
+            device=torch.cuda.current_device(),
         )
         torch.distributed.all_reduce(
             all_results, op=torch.distributed.ReduceOp.MIN, group=dist_wrapper.group
@@ -230,7 +205,6 @@ def save_state_dict_async_finalize_patched(
     storage_writer: 'FileSystemWriterAsync',
     global_metadata: Metadata,
     dist_wrapper: _DistWrapper,
-    object_group_to_destroy: Optional[dist.ProcessGroup] = None,
 ) -> None:
     """
     Finalization of save_state_dict_async_plan.
@@ -245,42 +219,42 @@ def save_state_dict_async_finalize_patched(
 
     Returns: None
     """
-    try:
-        write_results = storage_writer.retrieve_write_results()
+    write_results = storage_writer.retrieve_write_results()
 
-        # Gather the write results that will be saved to the metadata file.
-        gather_start = time()
-        all_results = dist_wrapper.gather_object(write_results)
-        gather_end = time()
-        logger.debug(f"{gather_end}, {torch.distributed.get_rank()}, gather: {gather_end-gather_start}")
+    # MCCL gather has higher device-memory pressure in this environment.  All
+    # ranks use all_gather_object on the persistent default process group instead.
+    gather_start = time()
+    all_results = dist_wrapper.all_gather_object(write_results)
+    gather_end = time()
+    logger.debug(
+        f"{gather_end}, {torch.distributed.get_rank()}, all_gather: "
+        f"{gather_end-gather_start}"
+    )
 
-        # Store the metadata on coordinator rank
-        if dist_wrapper.is_coordinator:
-            node_failures = _get_failure_dict(all_results)
-            if len(node_failures) == 0:
-                assert global_metadata is not None
-                write_start = time()
-                storage_writer.finish(global_metadata, all_results)
-                write_end = time()
-                logger.debug(f"{write_end}, metadata_write: {write_end - write_start}")
-        else:
-            node_failures = {}
+    # Store the metadata on coordinator rank
+    if dist_wrapper.is_coordinator:
+        node_failures = _get_failure_dict(all_results)
+        if len(node_failures) == 0:
+            assert global_metadata is not None
+            write_start = time()
+            storage_writer.finish(global_metadata, all_results)
+            write_end = time()
+            logger.debug(f"{write_end}, metadata_write: {write_end - write_start}")
+    else:
+        node_failures = {}
 
-        # Broadcast failure status to all ranks to raise exceptions everywhere if needed.
-        # The failure details are only raised on the coordinator.
-        failures_occurred = torch.tensor(
-            [int(len(node_failures) > 0)],
-            dtype=torch.int,
-            device=_collective_status_tensor_device(dist_wrapper.group),
-        )
-        torch.distributed.broadcast(
-            failures_occurred, src=dist_wrapper.global_coordinator_rank, group=dist_wrapper.group
-        )
-        if failures_occurred.item():
-            raise CheckpointException("write", node_failures)
-    finally:
-        if object_group_to_destroy is not None:
-            dist.destroy_process_group(object_group_to_destroy)
+    # Broadcast failure status to all ranks to raise exceptions everywhere if needed.
+    # The failure details are only raised on the coordinator.
+    failures_occurred = torch.tensor(
+        [int(len(node_failures) > 0)],
+        dtype=torch.int,
+        device=torch.cuda.current_device(),
+    )
+    torch.distributed.broadcast(
+        failures_occurred, src=dist_wrapper.global_coordinator_rank, group=dist_wrapper.group
+    )
+    if failures_occurred.item():
+        raise CheckpointException("write", node_failures)
 
 # patch
 from megatron.core.dist_checkpointing.strategies import state_dict_saver
