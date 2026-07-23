@@ -230,20 +230,29 @@ MULTI_TOKEN_PREDICTION_ARGS=(
     --mtp-depth 1
 )
 
-cmd="torchrun ${DISTRIBUTED_ARGS[@]} $WORK_HOME/pretrain_kimi.py \
-        ${MODEL_ARGS[@]} \
-        ${TRAINING_ARGS[@]} \
-        ${REGULARIZATION_ARGS[@]}
-        ${LEARNING_RATE_ARGS[@]} \
-        ${MODEL_PARALLEL_ARGS[@]} \
-        ${MIXED_PRECISION_ARGS[@]}
-        ${DATA_ARGS[@]} \
-        ${MOE_ARGS[@]} \
-        ${MLA_ARGS[@]} \
-        ${EVAL_AND_LOGGING_ARGS[@]} \
-        ${TRANSFORMER_ENGINE_ARGS[@]} \
-    "
-echo $cmd
-$cmd
+NUMA_BIND_CORES=${NUMA_BIND_CORES:-1}
+TRAIN_ENTRYPOINT=("$WORK_HOME/pretrain_kimi.py")
+if [[ "$NUMA_BIND_CORES" != "0" ]]; then
+    # local rank 0--3 use NUMA 0 and 4--7 use NUMA 1; each rank gets eight
+    # physical CPU cores plus their SMT siblings.
+    DISTRIBUTED_ARGS+=(--no-python)
+    TRAIN_ENTRYPOINT=("$WORK_HOME/kimi-k2/numa_bind_by_node.sh" python "$WORK_HOME/pretrain_kimi.py")
+fi
 
-# msys profile -t musa --gpu-metrics-set=1 -o S5000-dsv3-cpu-offload-buffer --device 0 
+cmd=(torchrun "${DISTRIBUTED_ARGS[@]}" "${TRAIN_ENTRYPOINT[@]}"
+        "${MODEL_ARGS[@]}"
+        "${TRAINING_ARGS[@]}"
+        "${REGULARIZATION_ARGS[@]}"
+        "${LEARNING_RATE_ARGS[@]}"
+        "${MODEL_PARALLEL_ARGS[@]}"
+        "${MIXED_PRECISION_ARGS[@]}"
+        "${DATA_ARGS[@]}"
+        "${MOE_ARGS[@]}"
+        "${MLA_ARGS[@]}"
+        "${EVAL_AND_LOGGING_ARGS[@]}"
+        "${TRANSFORMER_ENGINE_ARGS[@]}")
+printf '%q ' "${cmd[@]}"
+printf '\n'
+"${cmd[@]}"
+
+# msys profile -t musa --gpu-metrics-set=1 -o S5000-dsv3-cpu-offload-buffer --device 0
