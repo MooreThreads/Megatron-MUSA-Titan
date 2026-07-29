@@ -504,7 +504,22 @@ def get_embedding_ranks(pp_ranks: List[int]):
         args = get_args()
         if not args.untie_embeddings_and_output_weights:
             embedding_ranks.append(pp_ranks[-1])
-        config = core_transformer_config_from_args(args)
+        # This callback runs during model-parallel group initialization, before
+        # model_provider() gets a chance to consume the hybrid-AC sentinel.
+        # Temporarily normalize the sentinel here as well, then restore it so
+        # model_provider() can still select full AC for PP rank 0.
+        _recompute_num_layers = getattr(args, 'recompute_num_layers', None)
+        _hybrid_ac_sentinel = (
+            getattr(args, 'recompute_granularity', None) == 'selective'
+            and _recompute_num_layers == 0
+        )
+        if _hybrid_ac_sentinel:
+            args.recompute_num_layers = None
+        try:
+            config = core_transformer_config_from_args(args)
+        finally:
+            if _hybrid_ac_sentinel:
+                args.recompute_num_layers = _recompute_num_layers
         mtp_ranks = get_mtp_ranks(pp_ranks, config)
         embedding_ranks.extend(mtp_ranks)
     embedding_ranks = list(set(embedding_ranks))
