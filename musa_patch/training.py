@@ -1,5 +1,5 @@
 from datetime import datetime
-import dataclasses
+import re
 
 import gc
 import os
@@ -309,7 +309,14 @@ def train_step(forward_step_func, data_iterator,
 
     # Update parameters.
     timers('optimizer', log_level=1).start(barrier=args.barrier_with_L1_time)
-    update_successful, grad_norm, num_zeros_in_grad = optimizer.step()
+    if os.environ.get("SKIP_OPTIMIZER", "0") == "1":
+        print(f"[sherry info] ignore optimizer!!!!")
+        update_successful=True
+        grad_norm=0
+        num_zeros_in_grad=0
+    else:
+        update_successful, grad_norm, num_zeros_in_grad = optimizer.step()
+    
     timers('optimizer').stop()
 
     # when freezing sub-models we may have a mixture of successful and unsucessful ranks,
@@ -706,16 +713,50 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
     # Tracking loss.
     total_loss_dict = {}
     if os.environ.get("ENABLE_HOOK", "0") == "1":
-        from musa_patch.debug_tools import DebugHookManager
-        manager = DebugHookManager(
-            enable_backward_hook=True,
-            enable_forward_hook=True,
-            enable_log_to_file=True,
-            enable_log_online=False,
-            valid_gradnorm_threads=10000,
-            save_dir=args.tensorboard_dir
-        )
-        manager.register_modulewise_hooks(model[0])
+        def is_ep_group0(rank):
+            # pp_size = parallel_state.get_pipeline_model_parallel_world_size()
+            pp_rank = parallel_state.get_pipeline_model_parallel_rank()
+            edp_rank = parallel_state.get_expert_data_parallel_rank()
+            return edp_rank == 0
+            
+        def is_decode_layer_router(module, module_name:str):            
+            # return True if module_name.endswith("layers") else False
+            is_layer = bool(re.search(r'layers\.\d+$', module_name))
+            is_router = module_name.endswith(".router")
+            return is_layer or is_router
+        
+        import musa_patch.debug_tools as debug_tools        
+        
+        if os.environ.get("DEBUG_ROUTER_NAN", "0") == "0":
+            debug_tools.global_debug_hook_manager = debug_tools.DebugHookManager(
+                enable_log_to_file=False,
+                enable_log_online=True,
+                enable_details = True,
+                # max_batches=3,
+                valid_gradnorm_threshold=1000000,
+                save_dir=args.tensorboard_dir,
+                # enable_hook_fn = is_ep_group0,
+                enforce_register_hook_check_fn = is_decode_layer_router,
+            )
+        else:
+            def is_rank6(rank):
+                return rank % 8 == 6
+            
+            debug_tools.global_debug_hook_manager = debug_tools.DebugHookManager(
+                enable_log_to_file=False,
+                enable_log_online=False,
+                # max_batches=3,
+                valid_gradnorm_threshold=1000000,
+                save_dir=args.tensorboard_dir,
+                # enable_hook_fn = is_ep_group0,
+                # enforce_register_hook_check_fn = is_decode_layer，
+                # exit_when_invalid=True,
+                # enable_dump=True
+                enable_hook_fn = is_rank6,
+                enforce_register_hook_check_fn = is_decode_layer_router,
+            )
+        debug_tools.global_debug_hook_manager.register_modulewise_hooks(model[0])
+        
     if torch.distributed.get_rank() % 8 == 0:
         print(model)
         
@@ -921,6 +962,11 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
                         forward_backward_func)
 
             moe_monitor.step()
+            
+            if os.environ.get("ENABLE_HOOK", "0") == "1":
+                import musa_patch.debug_tools as debug_tools
+                debug_tools.global_debug_hook_manager.save()
+                        
 
             if int(os.getenv("USE_EPX", "0")) and int(os.getenv("EPX_ELASTIC_MODE_ENABLED", 0)):
                 lcp = parallel_state.get_epx_data_parallel_lcp()
