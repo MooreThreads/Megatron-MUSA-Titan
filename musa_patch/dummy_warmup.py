@@ -5,13 +5,14 @@ from contextlib import contextmanager
 
 import torch
 import torch.distributed
+from datetime import datetime
 from megatron.core import mpu, tensor_parallel
 from megatron.core.num_microbatches_calculator import get_num_microbatches
 from megatron.core.utils import get_batch_on_this_cp_rank
 from megatron.training.global_vars import get_args
-from megatron.training.training import print_datetime
 from megatron.training.utils import print_rank_0, unwrap_model
 from transformer_engine.pytorch.cpu_offload import get_fine_grained_offload_handler
+from megatron.core.transformer.moe.moe_utils import clear_aux_losses_tracker
 
 
 def _capture_rng_state():
@@ -158,10 +159,12 @@ def _use_vp_rank(model_chunk, chunk_id):
 @contextmanager
 def _disable_dummy_warmup_grad_checks(model):
     saved = []
+    seen = set()
     for model_chunk in model:
         ddp_config = getattr(model_chunk, "ddp_config", None)
-        if ddp_config is None:
+        if ddp_config is None or id(ddp_config) in seen:
             continue
+        seen.add(id(ddp_config))
         saved.append((ddp_config, ddp_config.check_for_nan_in_grad, ddp_config.check_for_large_grads))
         ddp_config.check_for_nan_in_grad = False
         ddp_config.check_for_large_grads = False
@@ -273,6 +276,9 @@ def dummy_warmup_step(model, optimizer):
 def _dummy_warmup_enabled():
     return int(os.getenv("ENABLE_DUMMY_WARMUP", 0)) != 0
 
+def print_datetime(string):
+    time_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print(f'[{string}] datetime: {time_str} ', flush=True)
 
 def _run_dummy_warmup(model, optimizer):
     rng_state = _capture_rng_state()
@@ -281,6 +287,7 @@ def _run_dummy_warmup(model, optimizer):
         with torch.profiler.record_function("dummy_warmup"):
             dummy_warmup_step(model, optimizer)
     finally:
+        clear_aux_losses_tracker()
         _restore_rng_state(rng_state)
 
     # All ranks must leave local dummy work before the real PP schedule starts.

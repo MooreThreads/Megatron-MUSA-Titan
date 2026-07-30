@@ -25,6 +25,7 @@ from megatron.training.utils import (
     print_rank_last
 )
 from megatron.core.rerun_state_machine import (
+    RerunState,
     get_rerun_state_machine,
 )
 from megatron.core.utils import check_param_hashes_across_dp_replicas
@@ -225,10 +226,45 @@ def _print_loss(local_loss):
     return (
         int(os.getenv("PRINT_GRAD_NORM_LOCAL_LOSS", 0)) == 1
         and (
-            local_loss.item() >= int(os.getenv("PRINT_LOCAL_LOSS_THRESHOLD", 100))
+            local_loss.item() >= float(os.getenv("PRINT_LOCAL_LOSS_THRESHOLD", 100))
             or torch.isnan(local_loss).item()
         )
     )
+
+
+def _get_rerun_run_label(rerun_state_machine):
+    state = getattr(rerun_state_machine, "state", None)
+    if state == RerunState.RERUNNING_IN_PLACE:
+        return "first_rerun"
+    if state in (RerunState.RERUNNING_FROM_CHECKPOINT, RerunState.RERUNNING_AGAIN_FROM_CHECKPOINT):
+        return "sec_rerun"
+    return "initial"
+
+
+def _print_pre_dp_reduce_losses(losses_reduced, args, run):
+    if not int(os.getenv("NO_LOSS_REDUCE", 0)):
+        return
+    if not mpu.is_pipeline_last_stage(ignore_virtual=True):
+        return
+
+    rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
+    dp_rank = mpu.get_data_parallel_rank() if torch.distributed.is_initialized() else 0
+    # train_step runs before the outer loop increments iteration; match training_log.
+    iteration = getattr(args, "curr_iteration", args.iteration) + 1
+    for key in losses_reduced[0].keys():
+        val0 = losses_reduced[0][key]
+        if isinstance(val0, tuple) or isinstance(val0, list):
+            local_numerator = sum([v[key][0] for v in losses_reduced])
+            local_denominator = sum([v[key][1] for v in losses_reduced])
+            local_loss = local_numerator / local_denominator.clamp(min=1)
+        else:
+            local_loss = sum([v[key] for v in losses_reduced]) / len(losses_reduced)
+
+        if _print_loss(local_loss):
+            print(
+                f"[pre-dp-reduce loss info] rank={rank} dp={dp_rank} "
+                f"iteration={iteration} run={run} local_loss={local_loss.item()}"
+            )
 
 
 def train_step(forward_step_func, data_iterator,
@@ -255,6 +291,9 @@ def train_step(forward_step_func, data_iterator,
             micro_batch_size=args.micro_batch_size,
             decoder_seq_length=args.decoder_seq_length,
             forward_only=False)
+        _print_pre_dp_reduce_losses(
+            losses_reduced, args, _get_rerun_run_label(rerun_state_machine)
+        )
     should_checkpoint, should_exit, exit_code = rerun_state_machine.should_checkpoint_and_exit()
     if should_exit:
         return {}, True, should_checkpoint, should_exit, exit_code, None, None
@@ -319,8 +358,6 @@ def train_step(forward_step_func, data_iterator,
                     local_denominator = sum(reduce_data[1:])
 
                     local_loss = local_numerator / local_denominator.clamp(min=1)
-                    if _print_loss(local_loss):
-                        print(f"[pre-dp-reduce loss info] local_loss={local_loss.item()}")
                     torch.distributed.all_reduce(reduce_data, group=mpu.get_data_parallel_group()) # reduce the losses-sum and token-num from all dp-ranks
                     numerator = reduce_data[0]
                     denominator = sum(reduce_data[1:])
@@ -328,8 +365,6 @@ def train_step(forward_step_func, data_iterator,
                     numerator = sum([v[key] for v in losses_reduced])
                     denominator = len(losses_reduced)
                     local_loss = numerator / denominator
-                    if _print_loss(local_loss):
-                        print(f"[pre-dp-reduce loss info] local_loss={local_loss.item()}")
                     torch.distributed.all_reduce(numerator, group=mpu.get_data_parallel_group())    # reduce the losses-sum from all dp-ranks
             # HACK(xuerong.huang): Reduce the report loss(loss_reduced) on the last training step of multi-microbatches.
             else:
@@ -688,12 +723,19 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
     iteration = args.iteration
     # Make sure rerun_state_machine reports the global iteration restored from checkpoint.
     rerun_state_machine = get_rerun_state_machine()
-    if rerun_state_machine.current_iteration != iteration:
+    if rerun_state_machine.state == RerunState.NOT_RUNNING_YET:
+        if rerun_state_machine.current_iteration != iteration:
+            print_rank_0(
+                f"Overwriting rerun_state_machine.current_iteration from "
+                f"{rerun_state_machine.current_iteration} to {iteration}..."
+            )
+            rerun_state_machine.current_iteration = iteration
+    elif rerun_state_machine.current_iteration != iteration:
         print_rank_0(
-            f"Overwriting rerun_state_machine.current_iteration from "
-            f"{rerun_state_machine.current_iteration} to {iteration}..."
+            f"Preserving rerun_state_machine.current_iteration="
+            f"{rerun_state_machine.current_iteration} from checkpoint "
+            f"(args.iteration={iteration}, state={rerun_state_machine.state})"
         )
-        rerun_state_machine.current_iteration = iteration
 
     # Track E2E metrics at the start of training
     one_logger_utils.on_train_start(iteration=iteration, consumed_train_samples=args.consumed_train_samples,
@@ -822,7 +864,6 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
         mlflow.start_run()
 
     from .moe_monitor import MoEMonitor
-    moe_monitor = MoEMonitor(model, iteration)
 
     with maybe_enable_profiling(
         args, global_step=iteration
@@ -835,6 +876,8 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
             config,
             forward_backward_func,
         )
+
+        moe_monitor = MoEMonitor(model, iteration)
 
         while iteration < args.train_iters:
             if args.profile and torch.distributed.get_rank() in args.profile_ranks:
