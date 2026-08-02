@@ -302,7 +302,7 @@ def core_transformer_config_from_args(args, config_class=None):
             f"Activation offload must work with PP size >= 3, but get PP size == {config_instance.pipeline_model_parallel_size}. For an obvious GPU memory optimization performance, we recommend PP size >= 5."
     ##HACK(xiaoteng.cui)
     
-    print('config_instance is ', config_instance)
+    # print('config_instance is ', config_instance)
     return config_instance
 
 

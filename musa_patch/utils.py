@@ -130,9 +130,9 @@ def add_global_debug_datas(iteration_id, batch_id, key, data):
     
     if len(data) > 0:
         if key in GLOBAL_DEBUG_DATAS[iteration_id][batch_id]:
-            # num_key = len(GLOBAL_DEBUG_DATAS[iteration_id][batch_id])
-            # key = f"{key}_{num_key}"
-            print(f"[sherry info] attention override {key}!!!!!")
+            num_key = len(GLOBAL_DEBUG_DATAS[iteration_id][batch_id])
+            key = f"{key}_repeat{num_key}"
+            # print(f"[sherry info] attention override {key}!!!!!")
         GLOBAL_DEBUG_DATAS[iteration_id][batch_id][key] = data
         return key
     return ""

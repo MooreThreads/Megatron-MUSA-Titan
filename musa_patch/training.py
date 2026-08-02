@@ -759,7 +759,18 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
         
     if torch.distributed.get_rank() % 8 == 0:
         print(model)
-        
+    
+    def is_leaf_module(module:torch.nn.Module):
+        if len(list(module.children())) == 0:
+            return True
+        else:
+            return False
+    for chunk_id, model_chunk in enumerate(model):
+        gpt_model = model_chunk.module.module
+        for name, module in gpt_model.named_modules():
+            if is_leaf_module(module) and name.endswith(".router"):
+                setattr(module, "cur_chunk_id", chunk_id)
+                
     # Iterations.
     iteration = args.iteration
     # Make sure rerun_state_machine reports the global iteration restored from checkpoint.
