@@ -9,7 +9,7 @@ import torch
 import torch.distributed
 from megatron.core import mpu
 
-from megatron.core.transformer.moe.moe_utils import track_moe_metrics
+from megatron.core.transformer.moe.moe_utils import clear_aux_losses_tracker, track_moe_metrics
 from megatron.core.transformer.multi_token_prediction import MTPLossLoggingHelper
 from megatron.training.global_vars import (
     get_args,
@@ -241,6 +241,12 @@ def _get_rerun_run_label(rerun_state_machine):
     return "initial"
 
 
+def _clear_loss_trackers():
+    clear_aux_losses_tracker()
+    if "values" in MTPLossLoggingHelper.tracker:
+        MTPLossLoggingHelper.clean_loss_in_tracker()
+
+
 def _print_pre_dp_reduce_losses(losses_reduced, args, run):
     if not int(os.getenv("NO_LOSS_REDUCE", 0)):
         return
@@ -276,6 +282,10 @@ def train_step(forward_step_func, data_iterator,
 
     rerun_state_machine = get_rerun_state_machine()
     while rerun_state_machine.should_run_forward_backward(data_iterator):
+        # Rerun can execute forward/backward more than once for one training step.
+        # Reset global loss logging trackers so only the current attempt is reported.
+        _clear_loss_trackers()
+
         # Set grad to zero.
         for model_chunk in model:
             model_chunk.zero_grad_buffer()
