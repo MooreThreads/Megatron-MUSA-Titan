@@ -1,5 +1,27 @@
+import os
+
 import megatron
 from megatron.core.dist_checkpointing.strategies.torch import *
+
+
+class CachedMetadataFileSystemReader_patched(CachedMetadataFileSystemReader):
+    """metadata 缓存改为类级别、按 checkpoint 目录共享。
+
+    一次 load 会构造多个 reader 实例（ShardedObjects 一个、ShardedTensors 一个），
+    上游那份 per-instance 缓存挡不住重复解析 .metadata。对齐上游 #3326。
+    """
+
+    _metadata_cache: Dict[str, Metadata] = {}
+
+    def __init__(self, path: Union[str, Path]) -> None:
+        super().__init__(path=path)
+        self._cache_key = os.path.abspath(os.fspath(path))
+
+    def read_metadata(self) -> Metadata:
+        cache = CachedMetadataFileSystemReader_patched._metadata_cache
+        if self._cache_key not in cache:
+            cache[self._cache_key] = super().read_metadata()
+        return cache[self._cache_key]
 
 def _unwrap_pyt_sharded_tensor(sh_ten: TorchShardedTensor) -> List[torch.Tensor]:
     """Unwrap tensor from PyT ShardedTensor instance.
@@ -27,10 +49,11 @@ def _get_filesystem_reader(
         msc = MultiStorageClientFeature.import_package()
         return msc.torch.MultiStorageFileSystemReader(checkpoint_dir, thread_count=2)
 
-    if cache_metadata:
-        return CachedMetadataFileSystemReader(checkpoint_dir)
-
-    return FileSystemReader(checkpoint_dir)
+    # 无视 cache_metadata，一律走共享缓存。一次 load 里 .metadata 会被解析三次：
+    # get_reformulation_metadata 一次（上游这里没开缓存），两次 base load 各一次，
+    # 而它们读的是同一个文件。缓存按目录 key，同一目录只解析一次。
+    del cache_metadata
+    return CachedMetadataFileSystemReader_patched(checkpoint_dir)
 
 def _replace_state_dict_keys_with_sharded_keys(
     sharded_state_dict: ShardedStateDict, keep_only_main_replica: bool = False
@@ -75,18 +98,6 @@ def _restore_dict_types(x: Union[dict, list, Any], keys_template: Union[dict, li
         assert isinstance(x, list), type(x)
         for x_val, templ_val in zip(x, keys_template):
             _restore_dict_types(x_val, templ_val)
-
-
-def _destroy_process_group(group):
-    """Destroy a process group, unwrapping Slime's reloadable group wrapper if present."""
-    import torch.distributed as dist
-
-    raw_group = getattr(group, "group", group)
-    if raw_group is None:
-        return
-    dist.destroy_process_group(raw_group)
-    if raw_group is not group:
-        group.group = None
 
 
 class TorchDistLoadShardedStrategy_patched(TorchDistLoadShardedStrategy):
@@ -135,21 +146,18 @@ class TorchDistLoadShardedStrategy_patched(TorchDistLoadShardedStrategy):
         # Load PyT Distributed format
         fsr = _get_filesystem_reader(checkpoint_dir, cache_metadata=True)
 
-        # MUSA DEBUG
-        logger.debug("MUSA DEBUG: torch patch works! destroy temp group in load")
-        import torch.distributed as dist
-        group_temp = dist.new_group(ranks=None, backend="mccl")
-        try:
-            checkpoint.load_state_dict(
-                pyt_state_dict,
-                fsr, process_group=group_temp,
-                planner=MCoreLoadPlanner(
-                    shapes_validation_sharded_tensors=flexible_shape_sharded_tensors,
-                    allow_shape_mismatch_sharded_tensors=allow_shape_mismatch_sharded_tensors,
-                ),
-            )
-        finally:
-            _destroy_process_group(group_temp)
+        # no_dist=True 对齐上游 main：FullyParallelLoadStrategyWrapper 已经定好了
+        # 谁读哪块，DCP 再全局协商一遍读计划是冗余的（192 卡上实测 2~4 s）。
+        # 不走通信，也就不再需要原先那个临时 mccl 组。
+        checkpoint.load_state_dict(
+            pyt_state_dict,
+            fsr,
+            no_dist=True,
+            planner=MCoreLoadPlanner(
+                shapes_validation_sharded_tensors=flexible_shape_sharded_tensors,
+                allow_shape_mismatch_sharded_tensors=allow_shape_mismatch_sharded_tensors,
+            ),
+        )
 
         self.cached_global_metadata = (
             fsr.read_metadata()
@@ -204,6 +212,9 @@ megatron.core.dist_checkpointing.strategies.torch.TorchDistSaveShardedStrategy =
 from megatron.core.dist_checkpointing.strategies import torch as strategy_torch
 from .state_dict_saver import save_state_dict_async_finalize_patched, save_state_dict_async_plan_patched
 strategy_torch.TorchDistSaveShardedStrategy = TorchDistSaveShardedStrategy_patched
+# get_reformulation_metadata 在 Megatron 侧，用的是它自己模块里的
+# _get_filesystem_reader，换成上面这个才能共享 metadata 缓存
+strategy_torch._get_filesystem_reader = _get_filesystem_reader
 strategy_torch.save_state_dict_async_finalize = save_state_dict_async_finalize_patched
 strategy_torch.save_state_dict_async_plan = save_state_dict_async_plan_patched
 
