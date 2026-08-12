@@ -1155,7 +1155,7 @@ def train(forward_step_func, model, optimizer, opt_param_scheduler,
     if args.enable_ft_package and ft_integration.get_rank_monitor_client() is not None:
         ft_integration.get_rank_monitor_client().shutdown_workload_monitoring()
 
-    maybe_finalize_async_save(blocking=True)
+    maybe_finalize_async_save(blocking=True, terminate=True)
 
     # If any exit conditions (signal handler, duration, iterations) have been reached, exit.
     if should_exit:
