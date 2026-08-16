@@ -1,5 +1,4 @@
 import logging
-import warnings
 from functools import partial
 from time import time
 from typing import Callable, List, Optional, Tuple, Union
@@ -111,9 +110,6 @@ class FileSystemWriterAsync_patch(FileSystemWriterAsync):
                 save in a checkpoint.
             non_blocking (bool, optional): knob to enable pinned D2H memcpy. Default is True.
         """
-        if non_blocking:
-            warnings.warn("non_blocking is not supported in FileSystemWriterAsync.preload_tensors yet")
-            non_blocking = False
 
         result = []
         for bucket in write_buckets:
@@ -123,7 +119,7 @@ class FileSystemWriterAsync_patch(FileSystemWriterAsync):
             ]
             result.append((file_name, storage_key, (bytes_data, tensor_data)))
         if non_blocking:
-            torch.cuda.synchronize()
+            torch.musa.synchronize()
         return result
 
 
