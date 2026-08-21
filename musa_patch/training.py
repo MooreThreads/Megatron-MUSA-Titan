@@ -594,8 +594,9 @@ def training_log(loss_dict, total_loss_dict, learning_rate, decoupled_learning_r
             writer,
             wandb_writer,
             total_loss_dict,
-            log_to_stdout=iteration % args.log_interval == 0,
             reduce_for_logging=iteration % args.log_interval == 0,
+            last_rank=args.world_size - 1,
+            mtp_num_layers=args.mtp_num_layers,
         )
 
     if iteration % args.log_interval == 0:
