@@ -65,6 +65,19 @@ def patch_before_import_megatron():
     megatron.training.initialize._compile_dependencies = _compile_dependencies
 
 
+def register_exit_handler():
+    # Clean teardown: drain pending MCCL collectives + stop watchdog threads
+    # before interpreter exit (prevents MCCL unhandled system error / SIGABRT race).
+    import atexit
+    import torch.distributed
+
+    def clean_teardown():
+        if torch.distributed.is_initialized():
+            torch.distributed.destroy_process_group()
+
+    atexit.register(clean_teardown)
+
+
 def patch_after_import_torch():
     # 1. Patch for torch.xxx
     torch.cuda.is_available = torch.musa.is_available
@@ -252,5 +265,6 @@ if os.getenv("ENABLE_ZERO_BUBBLE", "0") == "1":
     sys.modules['megatron.core.transformer.moe.moe_utils'].te_general_gemm = None
 
 patch_before_import_megatron()
+register_exit_handler()
 
 
