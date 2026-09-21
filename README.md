@@ -1,88 +1,105 @@
-# Introduction
-MT-Megatron is a python patch of [Megatron-LM](https://github.com/NVIDIA/Megatron-LM). Key features include:
+## About
 
-- **Simple Cuda Compatibility**: Use [torch_musa](https://github.com/MooreThreads/torch_musa) to replace PyTorch CUDA functions with [identical APIs](https://github.com/MooreThreads/MT-MegatronLM/blob/main/musa_patch/__init__.py).
+Megatron-MUSA-Titan focuses on pretraining and reinforcement learning infrastructure for **1T+ parameter models on clusters of 10,000+ Moore Threads GPUs**. Built around [Megatron-LM](https://github.com/NVIDIA/Megatron-LM), it brings MUSA-specific optimizations to pretraining and reinforcement learning while staying close to the upstream ecosystem.
 
-- **Ready-to-Use [Training Scripts](https://github.com/MooreThreads/MT-MegatronLM/tree/main/examples)**: Provide launch traning scripts for large-scale models, such as DeepSeek, Llama, etc
+## Highlights
 
-- **Proven Scalability & Stability**: Extensively tested on Moore Threads's large-scale GPU clusters (thousands of GPUs), ensuring high MFU and long-term reliability.
-
-- **Optimized Performance**: Enhanced with [MT-TransformerEngine](https://github.com/MooreThreads/MT-TransformerEngine) for additional acceleration, such as **per block fp8**, moe recompute, zero bubble, etc.
-
-- **Portable Cross-Platform Compatibility**: Requires only minor adaptations to run on other GPU backends.
+- **Trillion-parameter pretraining at scale.**. Achieved high Model FLOPs Utilization (MFU) and stable training during Kimi 1000B pretraining on a 10,000+ Moore Threads GPUs.
+- **One training foundation for pretraining and RL.** Supports Megatron pretraining and reinforcement learning with [slime](https://github.com/THUDM/slime) and [miles](https://github.com/radixark/miles), using Megatron for training and [SGLang](https://github.com/sgl-project/sglang) for rollout generation.
+- **Work with upstream repositories.** With [torch_musa](https://github.com/MooreThreads/torch_musa)'s PyTorch integration and [MUSA C](https://docs.mthreads.com/musa-sdk/version-5.2.0/introduction)'s compatibility with CUDA C, developers can use official Megatron-LM, slime, and miles repositories on Moore Threads GPUs. With a compatible MUSA environment, users can simply clone the official Megatron-LM, slime, and miles repositories and run training on Moore Threads GPUs **without modifying the upstream code**.
 
 
-# Getting started
+## What belongs here
 
-## 1. Prepare the code
+Our focus is training infrastructure on Moore Threads GPUs, rather than model implementations or training algorithms. We concentrate on efficient computation, communication, memory management, and distributed training across 10,000+ Moore Threads GPUs.
 
-You can create a directory named `train_dev`, and use the command below to clone the `MT-Megatron-LM`, `MT-TransformerEngine` and `Megatron-LM` to the `train_dev`.  
+We follow an upstream-first approach: general training algorithms or bug fix should be contributed to the relevant upstream projects. This repository retains two kinds of changes:
 
-**Note**:
-1. In this repository, we provide an [official Megatron-LM](https://github.com/NVIDIA/Megatron-LM) commit ID as a stable version. Using this version ensures stability with the [example models](https://github.com/MooreThreads/MT-MegatronLM/tree/main/examples).
+- **MUSA-specific workarounds** for GPU or software-stack issues that cannot yet be addressed upstream.
+- **Large-scale training optimizations** tailored to Moore Threads GPUs and cluster architecture, shared between pretraining and RL wherever possible.
 
-2. Since the official Megatron-LM evolves rapidly, we cannot maintain full development and adaptation support for every version, including the latest. Therefore, we encourage external developers to experiment with Megatron-LM’s daily main branch or newer releases for further customization. Note that MT-Megatron-LM is not limited to Moore Threads' GPUs, it also supports other GPU backends.
+For RL, SGLang serves as the rollout engine. Standalone inference optimization is outside this repository's scope.
 
-```bash
-# clone MT-Megatron-LM
-git clone https://github.com/MooreThreads/MT-MegatronLM/tree/main
+## Repository layout
 
-# clone MT-TransformerEngine
-git clone https://github.com/MooreThreads/MT-TransformerEngine
-pushd MT-TransformerEngine
-bash install.sh
-popd
+```text
+musa_titan/
+├── megatron/       # Shared Megatron adaptations and optimizations
+├── pretrain/       # Pretraining-specific functionality
+└── rl/
+    └── slime_musa/ # Framework-specific RL integration
 
-# clone Megatron-LM
-git clone https://github.com/NVIDIA/Megatron-LM
-git checkout -b dev/musa fdfcef87
+examples/
+├── pretrain/       # Model-specific pretraining recipes
+└── rl/
+    └── slime/ # Directory reserved for slime launch recipes
 ```
 
-## 2. Edit the hostfile
-In the directory of the model you want to launch, e.g., examples/deepseek-v3, create a hostfile containing the IP addresses of all GPU node participating in distributed training. The launch script will read the IPs from hostfile, establish SSH connections to each node, and finally initiate training using torchrun.
+RL reuses the shared Megatron functionality rather than duplicating it. The current RL directories provide the integration structure; framework-specific launch recipes are not yet included in this checkout.
 
-```bash
-node1-ip
-node2-ip
-...
-```
-## 3. Launch Multi-Node Training
+## Getting started
 
-### DeepSeekV2
+### 1. Prepare the environment
 
-```bash
-cd examples/deepseek-v2
-bash run_deepseekv2.sh
-```
+Install a compatible Moore Threads driver, MUSA toolkit, PyTorch with [torch_musa](https://github.com/MooreThreads/torch_musa), and [MT-TransformerEngine](https://github.com/MooreThreads/MT-TransformerEngine). Install any additional dependencies required by your selected recipe.
 
-### Llama3 
+Use the official [Megatron-LM](https://github.com/NVIDIA/Megatron-LM) repository. For RL, also prepare the official slime or miles repository and a MUSA-compatible SGLang environment.
 
-```bash
-cd examples/llama3
-bash dist_run_pretrain_megatron_llama3_musa.sh
+The pretraining examples generally expect Megatron-LM alongside this checkout:
+
+```text
+workspace/
+├── Megatron-LM/
+└── megatron-musa-titan/ # This repository;
 ```
 
+Make both repositories available on `PYTHONPATH`. From this repository's root:
 
-# Surpported Model
+```bash
+export PYTHONPATH="$PWD:$PWD/../Megatron-LM${PYTHONPATH:+:$PYTHONPATH}"
+```
 
-| Model List               | Availability |
-| :---                     |    :----:    |
-| Llama3                   |   &#10004;   |
-| DeepSeek-V3              |   &#10004;   |
-| DeepSeek-V2              |   &#10004;   |
-| Mixtral                  |   &#10004;   |
+Our goal is to work with upstream main branches, not require long-lived framework forks. Upstream APIs and dependencies evolve, so validate framework revisions together with your MUSA environment before a large-scale run.
 
-# Future Plan
-We will share our training experience on clusters with thousands of GPUs in this repo.
+### 2. Enable the training adaptations
 
-# Community
-### Issue Reporting
-If you find any problems for large model training using MT-Megatron, please open an issue.
+Add the following environment variable to your Bash launch script before starting training:
 
-### Contributions
-**Welcome any form of contribution of code, model implementation and document!**
+```bash
+export ACCELERATOR_BACKEND="musa"
+```
 
+Then add the following code at the beginning of your Python training entry point, before importing Megatron modules:
 
-# Acknowledgements
-Initial development leveraged code from the [FlagScale](https://github.com/FlagOpen/FlagScale), acknowledgments to their team.
+```python
+import os
 
+if os.getenv("ACCELERATOR_BACKEND", "musa") == "musa":
+    from musa_titan import apply_pretrain_patch
+    apply_pretrain_patch()
+```
+
+### 3. Configure and launch a recipe
+
+Start with the [pretraining examples](examples/pretrain), including [Kimi-K2](examples/pretrain/kimi-k2), [DeepSeek-V3](examples/pretrain/deepseek-v3), and [Llama3](examples/pretrain/llama3).
+
+Before launching, review the selected scripts and configure dataset and tokenizer paths, checkpoints, node counts, parallelism, and cluster networking. For SSH-based multi-node launchers, prepare a `hostfile` in the model's example directory with one node address per line, and ensure consistent environments and paths across nodes.
+
+Run the launcher from its model directory unless the recipe states otherwise. For example, after configuring the DeepSeek-V3 recipe:
+
+```bash
+cd examples/pretrain/deepseek-v3
+bash run_deepseekv3.sh
+```
+
+Recipes are starting points for cluster-specific configuration, not one-command reproductions of the reported 10,000-GPU benchmark. See [RL examples](examples/rl) for the current RL recipe structure.
+
+## Contributing
+
+Welcome any form of contribution of code, model implementation and document!
+
+For MUSA-specific function replacements, see the [maintenance guide](musa_titan/utils/PATCHING.md). General-purpose fixes should be proposed upstream whenever practical.
+
+## Acknowledgement
+
+Built on the work of the Megatron-LM, torch_musa, TransformerEngine, slime, miles. Initial development also leveraged [FlagScale](https://github.com/FlagOpen/FlagScale).

@@ -10,7 +10,8 @@ import inspect
 from typing import List, Optional, Tuple, Union
 # if os.getenv("ACCELERATOR_BACKEND", "musa") == "musa":
 if os.getenv("ACCELERATOR_BACKEND") == "musa":
-    import musa_patch
+    from musa_titan import apply_pretrain_patch
+    apply_pretrain_patch()
 else:
     import cuda_patch
 from megatron.training import get_args

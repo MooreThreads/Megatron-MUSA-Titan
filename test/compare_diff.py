@@ -110,7 +110,7 @@ def stat(cuda_info, musa_info):
 
 
 if __name__ == "__main__":
-    BASE_DIR_CUDA = "/nfs2/fan.mo/workspace/megatron-lm-musa-patch/examples/mixtral/output"
+    BASE_DIR_CUDA = "/nfs2/fan.mo/workspace/megatron-lm-musa-patch/examples/pretrain/mixtral/output"
     BASE_DIR_MUSA = "${OUTPUT_DIR}"
     STEPS = int(os.getenv("STEPS", 3000))
 

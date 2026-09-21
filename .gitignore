@@ -8,6 +8,13 @@ tboard/
 wandb/
 __pycache__/
 hostfile
+
+# Keep previously tracked example artifacts when reorganizing examples.
+!examples/pretrain/llama2/logs/
+!examples/pretrain/llama2/logs/**
+!examples/pretrain/mixtral/logs/
+!examples/pretrain/mixtral/logs/**
+!examples/pretrain/mixtral/hostfile
 profiler_result/
 output_log/
 *.log

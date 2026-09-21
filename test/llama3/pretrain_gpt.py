@@ -9,7 +9,8 @@ import inspect
 
 from typing import Union
 if os.getenv("ACCELERATOR_BACKEND", "musa") == "musa":
-    import musa_patch
+    from musa_titan import apply_pretrain_patch
+    apply_pretrain_patch()
 else:
     pass
 from megatron.training import get_args

@@ -181,11 +181,11 @@ def plot_prefix_mean_relative_error_curve(iterations, y_true, y_pred, name='lm_l
 if __name__ == "__main__":
     file2 = os.path.join(
         os.environ['MEGATRON_LM_MUSA_PATCH_HOME'],
-        'examples/kimi-k2/output_log/2026-04-17_160621/tp1_pp4_dp16_mbs1_numbs16_gbs256_gpus64/7/none_008thaui/attempt_0/7/stdout.log',
+        'examples/pretrain/kimi-k2/output_log/2026-04-17_160621/tp1_pp4_dp16_mbs1_numbs16_gbs256_gpus64/7/none_008thaui/attempt_0/7/stdout.log',
     )
     file1 = os.path.join(
         os.environ['MEGATRON_LM_MUSA_PATCH_HOME'],
-        'examples/kimi-k2/output_log/2026-04-22_185747/tp1_pp4_dp16_mbs1_numbs16_gbs256_gpus64/7/none_rs5tv4_n/attempt_0/7/stdout.log',
+        'examples/pretrain/kimi-k2/output_log/2026-04-22_185747/tp1_pp4_dp16_mbs1_numbs16_gbs256_gpus64/7/none_rs5tv4_n/attempt_0/7/stdout.log',
     )
     iterations1, losses1, tgs1, seq_load_balancing_losses1, grad_norms1 = parse_log_file(file1)
     iterations2, losses2, tgs2, seq_load_balancing_losses2, grad_norms2 = parse_log_file(file2)
@@ -232,4 +232,3 @@ if __name__ == "__main__":
 
 
     print(f'exp avg tgs: {avg_tgs1}, base avg tgs: {avg_tgs2}')
-

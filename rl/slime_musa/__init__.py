@@ -1,2 +1,0 @@
-"""MUSA integration for slime."""
-

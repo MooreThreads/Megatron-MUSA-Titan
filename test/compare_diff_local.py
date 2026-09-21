@@ -84,8 +84,8 @@ def stat(cuda_info, musa_info):
 
 if __name__ == "__main__":
     model = "mixtral"
-    BASE_DIR_CUDA = "/data2/yutian.rong/projects/megatron-lm-musa-patch/examples/mixtral/output/compare_cuda"
-    BASE_DIR_MUSA = "/data2/yutian.rong/projects/megatron-lm-musa-patch/examples/mixtral/output/compare_musa"
+    BASE_DIR_CUDA = "/data2/yutian.rong/projects/megatron-lm-musa-patch/examples/pretrain/mixtral/output/compare_cuda"
+    BASE_DIR_MUSA = "/data2/yutian.rong/projects/megatron-lm-musa-patch/examples/pretrain/mixtral/output/compare_musa"
     STEPS = int(os.getenv("STEPS", 5000))
 
     # ======== Mixtral ==========
