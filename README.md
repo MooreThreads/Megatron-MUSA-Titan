@@ -4,7 +4,7 @@ Megatron-MUSA-Titan focuses on pretraining and reinforcement learning infrastruc
 
 ## Highlights
 
-- **Trillion-parameter pretraining at scale.**. Achieved high Model FLOPs Utilization (MFU) and stable training during Kimi 1000B pretraining on a 10,000+ Moore Threads GPUs.
+- **Trillion-parameter pretraining at scale.** Achieved high Model FLOPs Utilization (MFU) and stable training during 1T MoE pretraining on a 10,000+ Moore Threads GPUs.
 - **One training foundation for pretraining and RL.** Supports Megatron pretraining and reinforcement learning with [slime](https://github.com/THUDM/slime) and [miles](https://github.com/radixark/miles), using Megatron for training and [SGLang](https://github.com/sgl-project/sglang) for rollout generation.
 - **Work with upstream repositories.** With [torch_musa](https://github.com/MooreThreads/torch_musa)'s PyTorch integration and [MUSA C](https://docs.mthreads.com/musa-sdk/version-5.2.0/introduction)'s compatibility with CUDA C, developers can use official Megatron-LM, slime, and miles repositories on Moore Threads GPUs. With a compatible MUSA environment, users can simply clone the official Megatron-LM, slime, and miles repositories and run training on Moore Threads GPUs **without modifying the upstream code**.
 
@@ -14,11 +14,29 @@ Megatron-MUSA-Titan focuses on pretraining and reinforcement learning infrastruc
 Our focus is training infrastructure on Moore Threads GPUs, rather than model implementations or training algorithms. We concentrate on efficient computation, communication, memory management, and distributed training across 10,000+ Moore Threads GPUs.
 
 We follow an upstream-first approach: general training algorithms or bug fix should be contributed to the relevant upstream projects. This repository retains two kinds of changes:
-
-- **MUSA-specific workarounds** for GPU or software-stack issues that cannot yet be addressed upstream.
 - **Large-scale training optimizations** tailored to Moore Threads GPUs and cluster architecture, shared between pretraining and RL wherever possible.
+- **MUSA-specific workarounds** for GPU or software-stack issues that cannot yet be addressed upstream.
+
 
 For RL, SGLang serves as the rollout engine. Standalone inference optimization is outside this repository's scope.
+
+## Key features
+
+We reuse upstream Megatron-LM, miles, and slime configuration options wherever possible. Additional options introduced by Megatron-MUSA-Titan are documented in the [feature usage and environment variable guide](docs/feature/README.md), along with configuration examples, defaults, and prerequisites.
+
+### Pretraining
+
+- **Blockwise FP8 training.** Supports blockwise FP8 training for large-scale models on Moore Threads GPUs.
+- **DeepEP over Async Copy Engine.** Accelerates MoE token dispatch and combine with ACE-backend EP communication.
+- **Expert-parallel communication overlap.** Overlaps expert-parallel (EP) communication with computation using DeepEP over ACE.
+- **Activation offloading with VPP and 1F1B.** Reduces GPU memory usage through activation offloading with virtual pipeline parallelism (VPP) and one-forward-one-backward (1F1B) schedules.
+- **RDMA-backed pipeline communication overlap.** Overlaps pipeline-parallel (PP) point-to-point communication with computation using [Mooncake](https://github.com/kvcache-ai/Mooncake.git) RDMA.
+- **[Distributed Holistic Trace Analysis](https://github.com/yongpan0709/DistributedHolisticTraceAnalysis).** Reads pytorch traces from all GPUs in real time to analyze operators, communication, pipeline-parallel bubble rates, and straggler nodes, identifying training bottlenecks and guiding optimization on 10,000+ GPU clusters. It can complete performance analysis of 1T MoE training across 10,000+ GPUs within hours and has been used in practice to analyze and optimize 1T MoE training.
+
+### Reinforcement learning
+
+- **slime and miles support.** Supports reinforcement learning with [slime](https://github.com/THUDM/slime) and  on Moore Threads GPUs, using Megatron-LM for training and [sglang_musa](https://github.com/sgl-project/sglang/tree/main/python/sglang/srt/hardware_backend/musa) for rollout generation.
+
 
 ## Repository layout
 

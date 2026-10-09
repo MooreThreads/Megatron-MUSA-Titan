@@ -23,7 +23,7 @@ set +u
 export PP_USE_MOONCAKE=1
 # The PP3 layout transfers 117,440,512-byte activations; reserve a 128 MiB slot.
 export MOONCAKE_P2P_SLOT_SIZE_BYTES=134217728
-export MC_BIND_NIC_ZJ_ENV=${MC_BIND_NIC_ZJ_ENV:-1}
+export MC_BIND_NIC=${MC_BIND_NIC:-1}
 export MC_WORKERS_PER_CTX=${MC_WORKERS_PER_CTX:-2}
 export MC_SLICE_SIZE=${MC_SLICE_SIZE:-65536}
 

@@ -4,6 +4,8 @@ import torch.utils
 import torch.utils.data
 import torch_musa
 
+from ._version import __version__
+
 
 def register_exit_handler():
     # Clean teardown: drain pending MCCL collectives + stop watchdog threads
@@ -228,4 +230,4 @@ def apply_rl_patch():
     _apply_megatron_patch()
 
 
-__all__ = ["apply_pretrain_patch", "apply_rl_patch"]
+__all__ = ["__version__", "apply_pretrain_patch", "apply_rl_patch"]
