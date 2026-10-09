@@ -64,6 +64,13 @@ export EP_BALANCE_INFO=0
 export MUSA_LOG=0x1
 export USE_TRITON_WEIGHTED_SWIGLU=1
 
+export PP_USE_MOONCAKE=1
+# MOONCAKE_P2P_SLOT_SIZE_BYTES can be hidden_size * seq_length * 2 (bf16 dtype of activation) if there's no MTP configuring.
+export MOONCAKE_P2P_SLOT_SIZE_BYTES=58720256
+export MC_BIND_NIC=${MC_BIND_NIC:-1}
+export MC_WORKERS_PER_CTX=${MC_WORKERS_PER_CTX:-2}
+export MC_SLICE_SIZE=${MC_SLICE_SIZE:-65536}
+
 if [ ! -d "${MEGATRON_PATH}/build" ]; then
     cd "${MEGATRON_PATH}"
     python setup.py build_ext --inplace
@@ -215,8 +222,9 @@ LEARNING_RATE_ARGS=(
 MODEL_PARALLEL_ARGS=(
 	--tensor-model-parallel-size $TP_SIZE  
 	--pipeline-model-parallel-size $PP_SIZE 
-    --decoder-last-pipeline-num-layers 1
-    # --num-virtual-stages-per-pipeline-rank 2
+    --account-for-loss-in-pipeline-split
+    --num-virtual-stages-per-pipeline-rank 2
+    --overlap-p2p-communication-warmup-flush
 )
 
 MIXED_PRECISION_ARGS=(
