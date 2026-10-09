@@ -4,7 +4,7 @@ Megatron-MUSA-Titan focuses on pretraining and reinforcement learning infrastruc
 
 ## Highlights
 
-- **Trillion-parameter pretraining at scale.** Achieved high Model FLOPs Utilization (MFU) and stable training during 1T MoE pretraining on a 10,000+ Moore Threads GPUs.
+- **Trillion-parameter pretraining at scale.** Achieved high Model FLOPs Utilization (MFU) and stable training during 1T MoE pretraining on clusters of 10,000+ Moore Threads GPUs. Training requires [MT-TransformerEngine](https://github.com/MooreThreads/MT-TransformerEngine), which provides optimized FP8 training.
 - **One training foundation for pretraining and RL.** Supports Megatron pretraining and reinforcement learning with [slime](https://github.com/THUDM/slime) and [miles](https://github.com/radixark/miles), using Megatron for training and [SGLang](https://github.com/sgl-project/sglang) for rollout generation.
 - **Work with upstream repositories.** With [torch_musa](https://github.com/MooreThreads/torch_musa)'s PyTorch integration and [MUSA C](https://docs.mthreads.com/musa-sdk/version-5.2.0/introduction)'s compatibility with CUDA C, developers can use official Megatron-LM, slime, and miles repositories on Moore Threads GPUs. With a compatible MUSA environment, users can simply clone the official Megatron-LM, slime, and miles repositories and run training on Moore Threads GPUs **without modifying the upstream code**.
 
@@ -25,6 +25,8 @@ For RL, SGLang serves as the rollout engine. Standalone inference optimization i
 We reuse upstream Megatron-LM, miles, and slime configuration options wherever possible. Additional options introduced by Megatron-MUSA-Titan are documented in the [feature usage and environment variable guide](docs/feature/README.md), along with configuration examples, defaults, and prerequisites.
 
 ### Pretraining
+
+Refer to the [Kimi-K2 1T MoE recipe](https://github.com/MooreThreads/Megatron-MUSA-Titan/blob/main/examples/pretrain/kimi-k2/kimi-k2/pretrain_kimi_1000B.sh) for configuration examples of the features below.
 
 - **Blockwise FP8 training.** Supports blockwise FP8 training for large-scale models on Moore Threads GPUs.
 - **DeepEP over Async Copy Engine.** Accelerates MoE token dispatch and combine with ACE-backend EP communication.

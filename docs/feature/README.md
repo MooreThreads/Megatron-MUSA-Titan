@@ -33,10 +33,7 @@ if os.getenv("ACCELERATOR_BACKEND", "musa") == "musa":
 
 ### Blockwise FP8 training
 
-The [Kimi-K2 1T MoE recipe](../examples/pretrain/kimi-k2/kimi-k2/pretrain_kimi_1000B.sh)
-accepts this shell switch:
-
-The recipe adds these Megatron arguments:
+The fp8 recipe adds these Megatron arguments:
 
 ```text
 --transformer-impl transformer_engine
