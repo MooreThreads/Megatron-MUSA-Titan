@@ -65,6 +65,13 @@ alias modules explicitly with `aliases=(consumer_module,)`. They must still
 reference the original function. Apply patches before other consumers import
 the function; existing unlisted references are not updated.
 
+For a narrowly scoped import compatibility fallback, use
+`replace_import_source()` instead of an unverified `source.replace()`. It
+requires the exact source fragment to occur once by default, returns a rewritten
+in-memory string, and leaves the upstream checkout unchanged. The import hook
+must still gate the rewrite on the expected `ImportError.name`; this helper does
+not make unrelated import failures safe to suppress.
+
 Every call requires a reason, runtime commits, `authored`, the full dotted target path,
 and the patch file's path relative to this repository. The helper prints these
 fields after a successful replacement. It checks target existence, callability,

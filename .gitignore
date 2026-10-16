@@ -8,6 +8,8 @@ tboard/
 wandb/
 __pycache__/
 hostfile
+analysis
+swanlab
 
 # Keep previously tracked example artifacts when reorganizing examples.
 !examples/pretrain/llama2/logs/
@@ -49,3 +51,5 @@ mem_snapshot/
 *_comparison.png
 *_diff.png
 *_prefix_mean_relative_error.png
+
+examples/rl/*/set_env.sh

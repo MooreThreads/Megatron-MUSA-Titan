@@ -6,6 +6,8 @@ import torch_musa
 
 from ._version import __version__
 
+_TORCH_PATCHED = False
+
 
 def register_exit_handler():
     # Clean teardown: drain pending MCCL collectives + stop watchdog threads
@@ -21,6 +23,8 @@ def register_exit_handler():
 
 
 def patch_after_import_torch():
+    global _TORCH_PATCHED
+
     # 1. Patch for torch.xxx
     torch.cuda.is_available = torch.musa.is_available
     # torch.cuda.current_device = lambda : f'musa:{torch.musa.current_device()}'
@@ -33,7 +37,6 @@ def patch_after_import_torch():
     torch.cuda.HalfTensor = torch.musa.HalfTensor
     torch.cuda.BFloat16Tensor = torch.musa.BFloat16Tensor
     torch.cuda.IntTensor = torch.musa.IntTensor
-    torch.cuda.synchronize = torch.musa.synchronize
     torch.cuda.get_rng_state = torch.musa.get_rng_state
     torch.cuda.set_rng_state = torch.musa.set_rng_state
     torch.cuda.random.get_rng_state = torch.musa.get_rng_state
@@ -45,8 +48,8 @@ def patch_after_import_torch():
     torch.cuda.Stream = torch.musa.Stream
     torch.cuda.stream = torch.musa.stream
     torch.cuda.get_device_properties = torch.musa.get_device_properties
-    # add torch.musa.current_devce() to activate torch.musa.default_generators
-    d = torch.musa.current_device()
+    # Activate torch.musa.default_generators before exposing them through CUDA.
+    torch.musa.current_device()
     torch.cuda.default_generators = torch.musa.default_generators
     # torch.cuda.amp = torch.musa.amp
     # Memory
@@ -62,6 +65,20 @@ def patch_after_import_torch():
     torch.cuda._lazy_call = torch.musa.core._lazy_init._lazy_call
     torch.cuda._lazy_init = torch.musa.core._lazy_init._lazy_init
 
+    def get_device_capability_musa(*args, **kwargs):
+        # CUDA and MUSA compute capabilities differ. SGLang-MUSA maps CUDA
+        # capability values to MUSA values directly, while Megatron remains
+        # unmodified and receives this compatibility mapping through a patch.
+        from packaging.version import Version
+        torch_version = Version(torch.__version__).base_version
+        if Version(torch_version) > Version("2.5.0"):
+            return (8, 3)
+        return [8, 3]
+    torch.cuda.get_device_capability = get_device_capability_musa
+
+    if _TORCH_PATCHED:
+        return
+
     # 2.Patch for torch args related to cuda/musa
     def hook_cuda_device(device):
         if isinstance(device, str) and device.startswith("cuda"):
@@ -71,16 +88,35 @@ def patch_after_import_torch():
         return device
 
     def maybe_hook_cuda_args(args, kwargs):
-        new_args = []
-        for arg in args:
-            new_args.append(hook_cuda_device(arg))
+        new_args = [hook_cuda_device(arg) for arg in args]
         if "device" in kwargs:
-            v = kwargs["device"]
-            kwargs['device'] = hook_cuda_device(v)
+            kwargs["device"] = hook_cuda_device(kwargs["device"])
+        else:
+            # Preserve the active ``with torch.device(...)`` context after
+            # wrapping torch's device constructors below.
+            try:
+                from torch.utils._device import CURRENT_DEVICE
+            except ImportError:
+                CURRENT_DEVICE = None
+            if CURRENT_DEVICE is not None:
+                kwargs["device"] = hook_cuda_device(CURRENT_DEVICE)
         return tuple(new_args), kwargs
+
+    def register_original_device_constructors(originals):
+        # DeviceContext dispatches only registered constructor identities.
+        # Keep both the original and wrapped functions registered so MUSA
+        # contexts do not silently create CPU tensors.
+        try:
+            from torch.utils._device import _device_constructors
+            constructors = _device_constructors()
+        except Exception:
+            return
+        for original in originals:
+            constructors.add(original)
 
     # retain torch.full reference
     original_full = torch.full
+    original_device_constructors = [original_full]
     # redeine torch.zeros
     def patched_full(*args, **kwargs):
         args, kwargs = maybe_hook_cuda_args(args, kwargs)
@@ -90,10 +126,10 @@ def patch_after_import_torch():
 
     # retain torch.tensor reference
     original_tensor = torch.tensor
+    original_device_constructors.append(original_tensor)
     # redefine torch.tensor
     def patched_tensor(*args, **kwargs):
-        if 'device' in kwargs and kwargs['device'] == 'cuda':
-            kwargs['device'] = 'musa'
+        args, kwargs = maybe_hook_cuda_args(args, kwargs)
         result = original_tensor(*args, **kwargs)
         return result
     torch.tensor = patched_tensor
@@ -109,27 +145,27 @@ def patch_after_import_torch():
 
     # retain torch.zeros reference
     original_zeros = torch.zeros
+    original_device_constructors.append(original_zeros)
     # redeine torch.zeros
     def patched_zeros(*args, **kwargs):
-        if 'device' in kwargs and kwargs['device'] == 'cuda':
-            kwargs['device'] = 'musa'
-        # elif 'device' in kwargs and str(kwargs['device']).isdigit():
-        #     kwargs['device'] = f"musa:{kwargs['device']}"
+        args, kwargs = maybe_hook_cuda_args(args, kwargs)
         result = original_zeros(*args, **kwargs)
         return result
     torch.zeros = patched_zeros
 
     # retain torch.empty reference
     original_empty = torch.empty
+    original_device_constructors.append(original_empty)
     # redifine torch.empty
     def patched_empty(*args, **kwargs):
-        if 'device' in kwargs and kwargs['device'] == 'cuda':
-            kwargs['device'] = 'musa'
-        # elif 'device' in kwargs and str(kwargs['device']).isdigit():
-        #     kwargs['device'] = f"musa:{kwargs['device']}"
+        args, kwargs = maybe_hook_cuda_args(args, kwargs)
         result = original_empty(*args, **kwargs)
         return result
     torch.empty = patched_empty
+
+    register_original_device_constructors(
+        original_device_constructors + [torch.full, torch.tensor, torch.zeros, torch.empty]
+    )
 
     # Original tensor class
     original_is_cuda = torch.Tensor.is_cuda
@@ -148,6 +184,8 @@ def patch_after_import_torch():
         result = origin_init_process_group(*args, **kwargs)
         return result
     torch.distributed.init_process_group = patched_init_process_group
+
+    _TORCH_PATCHED = True
 
     # 3. disable pin memory
     # def pin_memory(data, device=None):
@@ -172,14 +210,6 @@ def patch_after_import_torch():
     # torch.compile = noop
     # torch.jit.script = noop
 
-    def get_device_capability_musa(*args, **kwargs):
-        from packaging.version import Version
-        torch_version = Version(torch.__version__).base_version
-        if Version(torch_version) > Version("2.5.0"):
-            return (8, 3)
-        return [8, 3]
-    torch.cuda.get_device_capability = get_device_capability_musa
-
 def py_patch():
     if sys.version_info >= (3.9, 0):
         return
@@ -188,6 +218,42 @@ def py_patch():
         return abs(a * b) // math.gcd(a, b)
     math.lcm = lcm
     return
+
+
+def patch_sglang_cuda_compatibility():
+    """Keep SGLang's MUSA detector from overwriting CUDA compatibility aliases."""
+    try:
+        from sglang.srt.utils.common import is_musa
+    except ModuleNotFoundError as error:
+        if error.name != "sglang" and not error.name.startswith("sglang."):
+            raise
+        return False
+
+    # Newer SGLang only imports torchada from ``is_musa()``.  Importing it
+    # here moves its one-time patch application before our compatibility
+    # aliases are restored; otherwise the first later ``is_musa()`` call can
+    # let torchada overwrite (notably) ``torch.cuda.get_device_capability``.
+    setattr(is_musa, "_patched", True)
+    is_musa.cache_clear()
+
+    try:
+        import torchada  # noqa: F401
+    except ModuleNotFoundError as error:
+        # torchada is not needed by the old SGLang detector, so preserve the
+        # optional integration when running against an older checkout.
+        if error.name != "torchada" and not error.name.startswith("torchada."):
+            raise
+
+    patch_after_import_torch()
+
+    # ``torchada`` exposes this guard in its private patch module.  Keep it
+    # asserted after restoring our aliases so an explicit/lazy apply_patches()
+    # call cannot replay torchada's CUDA replacements over musa_titan.
+    torchada_patch = sys.modules.get("torchada._patch")
+    if torchada_patch is not None:
+        torchada_patch._patched = True
+
+    return True
 
 _runtime_patch_applied = False
 _megatron_patch_applied = False
@@ -226,8 +292,32 @@ def apply_pretrain_patch():
 
 
 def apply_rl_patch():
-    """Apply the shared Megatron patches required by RL training backends."""
+    """Apply shared Megatron patches and optional slime/miles RL integrations.
+
+    Megatron and SGLang compatibility patches are idempotent. Framework-specific
+    slime/miles hooks stay env-gated, so this entry point can be called again
+    after ``SLIME_MUSA_PATCH_AT_STARTUP`` or ``MILES_MUSA_PATCH_AT_STARTUP`` is
+    set, for example from ``musa_titan.rl.miles_musa.setup()``.
+    """
     _apply_megatron_patch()
+    # SGLang's ``is_musa()`` installs its own CUDA aliases when it is first
+    # evaluated.  Lock that detector before importing RL/SGLang consumers so
+    # it cannot replace the compatibility capability shim with the raw MUSA
+    # capability (for example, ``(3, 1)``), which makes Megatron reject GroupedGEMM.
+    # ``patch_sglang_cuda_compatibility`` is optional and returns False when this
+    # patch is used without SGLang.
+    patch_sglang_cuda_compatibility()
+    from .rl.common import patch_sglang_device_capability
+    patch_sglang_device_capability()
+    from .rl import apply_patch as apply_rl_specific_patch
+    apply_rl_specific_patch()
+    patch_after_import_torch()
 
 
-__all__ = ["__version__", "apply_pretrain_patch", "apply_rl_patch"]
+__all__ = [
+    "__version__",
+    "apply_pretrain_patch",
+    "apply_rl_patch",
+    "patch_after_import_torch",
+    "patch_sglang_cuda_compatibility",
+]

@@ -47,15 +47,22 @@ musa_titan/
 ├── megatron/       # Shared Megatron adaptations and optimizations
 ├── pretrain/       # Pretraining-specific functionality
 └── rl/
-    └── slime_musa/ # Framework-specific RL integration
+    ├── slime_musa/ # slime weight-update and rollout integration
+    └── miles_musa/ # miles training, rollout, and weight-update integration
 
 examples/
 ├── pretrain/       # Model-specific pretraining recipes
 └── rl/
-    └── slime/ # Directory reserved for slime launch recipes
+    ├── slime/       # slime launch recipes
+    ├── slime_musa/  # slime MUSA launch recipes and runtime configuration
+    └── miles_musa/  # miles MUSA launch recipes and runtime configuration
 ```
 
-RL reuses the shared Megatron functionality rather than duplicating it. The current RL directories provide the integration structure; framework-specific launch recipes are not yet included in this checkout.
+RL reuses the shared Megatron functionality rather than duplicating it. Call
+`musa_titan.apply_rl_patch()` before importing slime or miles training modules.
+Framework-specific hooks stay opt-in through `SLIME_MUSA_PATCH_AT_STARTUP=1`
+(`true`, `yes`, and `slime` are also accepted) and
+`MILES_MUSA_PATCH_AT_STARTUP=1` (`true`, `yes`, and `miles` are also accepted).
 
 ## Getting started
 
@@ -98,6 +105,22 @@ if os.getenv("ACCELERATOR_BACKEND", "musa") == "musa":
     from musa_titan import apply_pretrain_patch
     apply_pretrain_patch()
 ```
+
+For slime or miles, apply the RL entry point instead of the pretraining one:
+
+```python
+import os
+
+if os.getenv("ACCELERATOR_BACKEND", "musa") == "musa":
+    from musa_titan import apply_rl_patch
+    apply_rl_patch()
+```
+
+Keep `SLIME_MUSA_PATCH_AT_STARTUP=1` or `MILES_MUSA_PATCH_AT_STARTUP=1` in
+the process environment so the corresponding framework hooks are installed.
+`slime` remains accepted as a compatible value for the slime marker.
+Putting this repository first on `PYTHONPATH` also loads `sitecustomize.py`,
+which calls `apply_rl_patch()` for Ray workers and child processes.
 
 ### 3. Configure and launch a recipe
 

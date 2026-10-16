@@ -12,6 +12,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 helpers = runpy.run_path(str(ROOT / "musa_titan/utils/patching.py"))
 replace_attr = helpers["replace_attr"]
+replace_import_source = helpers["replace_import_source"]
 git_commit = helpers["git_commit"]
 
 
@@ -37,6 +38,20 @@ class PatchingTest(unittest.TestCase):
             **kwargs,
         )
 
+    def apply_source_patch(self, source, original, replacement, **kwargs):
+        return replace_import_source(
+            source,
+            original,
+            replacement,
+            reason="Test import compatibility rewrite",
+            commits={"megatron": "a" * 40},
+            authored=kwargs.pop("authored", self.authored()),
+            upstream_path="megatron.test.import",
+            current_path="test/test_patching.py",
+            commit_branch_verified=True,
+            **kwargs,
+        )
+
     def test_replacement_updates_known_consumers(self):
         original = lambda value: value + 1
         replacement = lambda value: value * 2
@@ -45,6 +60,18 @@ class PatchingTest(unittest.TestCase):
         self.assertIs(self.apply_patch(owner, "step", replacement, aliases=(consumer,)), original)
         self.assertEqual(owner.step(3), 6)
         self.assertIs(consumer.step, replacement)
+
+    def test_source_replacement_requires_one_exact_fragment(self):
+        source = "from old.path import value\n"
+        rewritten = self.apply_source_patch(
+            source,
+            "from old.path import value\n",
+            "from new.path import value\n",
+        )
+        self.assertEqual(rewritten, "from new.path import value\n")
+
+        with self.assertRaises(ValueError):
+            self.apply_source_patch(source, "from missing import value\n", "replacement\n")
 
     def test_stale_alias_fails_before_any_assignment(self):
         original = lambda: None

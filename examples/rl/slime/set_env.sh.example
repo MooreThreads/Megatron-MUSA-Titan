@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+
+# Copy this file to set_env.sh and edit the values for the local machine.
+# set_env.sh is intentionally ignored and must not contain credentials.
+
+export MUSA_TITAN_PATH="/path/to/megatron-musa-titan"
+export SLIME_PATH="/path/to/slime-titan"
+export MEGATRON_PATH="/path/to/Megatron-LM"
+export SLIME_MODEL_ARGS_SCRIPT="/path/to/model-args/qwen3-30B-A3B-2507.sh"
+export HF_CHECKPOINT="/path/to/Qwen3-30B-A3B-Instruct-2507"
+export REF_LOAD="/path/to/Qwen3-30B-A3B-Instruct-2507_slime"
+export SAVE_PATH="/path/to/checkpoints/Qwen3-30B_slime"
+export DATASET_PATH="/path/to/data"
+
+export MUSA_VISIBLE_DEVICES="${MUSA_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}"
+export MCCL_LIB="${MCCL_LIB:-/usr/local/musa/lib/libmccl.so}"
+export GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-eth0}"
+export MUSA_LD_LIBRARY_PATH="${MUSA_LD_LIBRARY_PATH:-/usr/lib:/lib64:/usr/lib/x86_64-linux-gnu:/usr/local/musa/lib:/usr/local/lib:/usr/local/mtshmem/lib:/usr/local/openmpi/lib}"
+export RUNTIME_PYTHONPATH="${MUSA_TITAN_PATH}:${MEGATRON_PATH}:${SLIME_PATH}${PYTHONPATH:+:${PYTHONPATH}}"
+export RUNTIME_LD_LIBRARY_PATH="${MUSA_LD_LIBRARY_PATH}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+
+# Set RAY_HEAD_IP or create an ignored hostfile beside this script.
+export RAY_HEAD_IP="${RAY_HEAD_IP:-}"
+export RAY_DASHBOARD_PORT="${RAY_DASHBOARD_PORT:-8972}"
