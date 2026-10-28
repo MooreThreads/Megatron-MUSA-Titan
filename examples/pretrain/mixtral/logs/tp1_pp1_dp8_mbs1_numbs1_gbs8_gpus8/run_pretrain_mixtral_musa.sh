@@ -171,7 +171,7 @@ MOE_ARGS=(
 #     )
 # fi
 
-cmd="torchrun ${DISTRIBUTED_ARGS[@]} $WORK_HOME/pretrain_mixtral.py \
+cmd="torchrun ${DISTRIBUTED_ARGS[@]} $WORK_HOME/pretrain_gpt.py \
         ${MODEL_ARGS[@]} \
         ${TRAINING_ARGS[@]} \
         ${REGULARIZATION_ARGS[@]}

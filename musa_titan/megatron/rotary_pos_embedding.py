@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from megatron.core.transformer.transformer_block import TransformerBlock
 
 import logging
+from musa_titan.utils.patching import git_commit, replace_attr
 
 import torch
 import torch_musa
@@ -95,19 +96,24 @@ def apply_rotary_pos_emb_thd(
         ]
     ).squeeze(1)
     
-def apply_rotary_pos_emb(
+def apply_rotary_pos_emb_with_musa_fusion(
     t: Tensor,
     freqs: Tensor,
     config: TransformerConfig,
     cu_seqlens: Optional[Tensor] = None,
     mscale: float = 1.0,
     cp_group: torch.distributed.ProcessGroup = None,
+    mla_rotary_interleaved: bool = False,
 ):
 
     """
     Reroute to the appropriate apply_rotary_pos_emb function depending on
     fused/unfused kernels, or bshd (conventional) / thd (packed seq) format
     """
+
+    if mla_rotary_interleaved:
+        return apply_rotary_pos_emb(t, freqs, config, cu_seqlens, mscale,
+                                    cp_group, mla_rotary_interleaved=True)
 
     if cp_group is None:
         cp_group = parallel_state.get_context_parallel_group()
@@ -116,12 +122,12 @@ def apply_rotary_pos_emb(
     if config.apply_rope_fusion and not HAVE_APPLY_ROPE_FUSION:
         # setting apply_rope_fusion in config to False so that subsequent queries to this config also return False
         config.apply_rope_fusion = False
-        if not getattr(apply_rotary_pos_emb, "printed_fused_warning", False):
+        if not getattr(apply_rotary_pos_emb_with_musa_fusion, "printed_fused_warning", False):
             logger.warning(
                 "Setting apply_rope_fusion to false because its implementation"
                 " is not included in Apex. Try upgrading to the latest version"
             )
-            apply_rotary_pos_emb.printed_fused_warning = True
+            apply_rotary_pos_emb_with_musa_fusion.printed_fused_warning = True
     if config.apply_rope_fusion:
         if cu_seqlens is None:
             return torch.rope(t, freqs.squeeze(1).squeeze(1), rotary_interleaved=False, batch_first=False)
@@ -136,14 +142,42 @@ def apply_rotary_pos_emb(
                 t, cu_seqlens, freqs, rotary_interleaved=config.rotary_interleaved
             )
             
-# import megatron.core.models.common.embeddings.rotary_pos_embedding
-# megatron.core.models.common.embeddings.rotary_pos_embedding.apply_rotary_pos_emb = apply_rotary_pos_emb
-# import megatron.core.transformer.attention
-# megatron.core.transformer.attention.apply_rotary_pos_emb = apply_rotary_pos_emb
-
+from megatron.core.models.common.embeddings import rope_utils
+from megatron.core.models.common.embeddings.rope_utils import apply_rotary_pos_emb
 import sys
-for k in sys.modules:
-    if k.startswith('megatron.core'):
-        for target in ['apply_rotary_pos_emb']:
-            if getattr(sys.modules[k], target, None):
-                setattr(sys.modules[k], target, apply_rotary_pos_emb)
+
+# Update known from-import aliases already loaded; later imports use rope_utils.
+# Keep the original local binding above for the MLA interleaved fallback.
+_rope_aliases = tuple(
+    sys.modules[name]
+    for name in (
+        "megatron.core.models.common.embeddings",
+        "megatron.core.models.common.embeddings.rotary_pos_embedding",
+        "megatron.core.transformer.attention",
+        "megatron.core.transformer.multi_latent_attention",
+        "megatron.core.inference.contexts.dynamic_context",
+    )
+    if name in sys.modules and hasattr(sys.modules[name], "apply_rotary_pos_emb")
+)
+_patch_metadata = {
+    "commits": {"megatron": git_commit(rope_utils.__file__)},
+    "authored": {
+        "author": "Xiaoteng Cui",
+        "modified_date": "2026-10-29",
+        "upstream": {"megatron": {
+            "branch": "core_v0.19.0",
+            "commit": "5be9626709af2722333bf54797c954c09edeada3",
+            "commit_date": "2026-08-19T18:51:14+00:00",
+        }},
+    },
+    "current_path": "musa_titan/megatron/rotary_pos_embedding.py",
+    "commit_branch_verified": True,
+}
+
+replace_attr(
+    rope_utils, "apply_rotary_pos_emb", apply_rotary_pos_emb_with_musa_fusion,
+    reason="Use MUSA rotary kernels while retaining native MLA interleaved handling",
+    upstream_path="megatron.core.models.common.embeddings.rope_utils.apply_rotary_pos_emb",
+    aliases=_rope_aliases,
+    **_patch_metadata,
+)

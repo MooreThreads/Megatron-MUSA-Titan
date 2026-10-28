@@ -90,31 +90,11 @@ Our goal is to work with upstream main branches, not require long-lived framewor
 
 ### 2. Enable the training adaptations
 
-Add the following environment variable to your Bash launch script before starting training:
-
-```bash
-export ACCELERATOR_BACKEND="musa"
-```
-
-Then add the following code at the beginning of your Python training entry point, before importing Megatron modules:
-
-```python
-import os
-
-if os.getenv("ACCELERATOR_BACKEND", "musa") == "musa":
-    from musa_titan import apply_pretrain_patch
-    apply_pretrain_patch()
-```
-
-For slime or miles, apply the RL entry point instead of the pretraining one:
-
-```python
-import os
-
-if os.getenv("ACCELERATOR_BACKEND", "musa") == "musa":
-    from musa_titan import apply_rl_patch
-    apply_rl_patch()
-```
+For pretraining launched with torchrun, keep
+`PRETRAIN_MUSA_PATCH_AT_STARTUP=1` in the process environment so the
+pretraining patches are installed. Putting this repository first on
+`PYTHONPATH` loads `sitecustomize.py`, which calls `apply_pretrain_patch()`
+before the training entry point imports Megatron.
 
 Keep `SLIME_MUSA_PATCH_AT_STARTUP=1` or `MILES_MUSA_PATCH_AT_STARTUP=1` in
 the process environment so the corresponding framework hooks are installed.

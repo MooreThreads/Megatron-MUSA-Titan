@@ -211,6 +211,12 @@ def patch_after_import_torch():
     # torch.jit.script = noop
 
 def py_patch():
+    # Core 0.19 uses the standard override decorator added in Python 3.12.
+    # Keep the installed cp310 TE wheel and use its typing_extensions equivalent.
+    import typing
+    if not hasattr(typing, "override"):
+        from typing_extensions import override
+        typing.override = override
     if sys.version_info >= (3.9, 0):
         return
     import math

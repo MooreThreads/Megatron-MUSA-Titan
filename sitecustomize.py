@@ -1,10 +1,8 @@
-"""Load RL MUSA hooks when a process opts in through the environment.
+"""Select pretraining and RL startup patches with environment variables.
 
-Python imports the first ``sitecustomize`` found on ``sys.path``.  Putting this
-file first via ``PYTHONPATH=$MUSA_TITAN_PATH:...`` covers the Ray job driver,
-Ray workers, and SGLang/Megatron child processes without a Miles or slime
-sitecustomize.  CUDA/CPU processes leave the RL startup markers unset and are
-therefore unchanged.
+PRETRAIN_MUSA_PATCH_AT_STARTUP=1 enables shared Megatron and pretraining patches.
+SLIME_MUSA_PATCH_AT_STARTUP=1 enables shared Megatron patches and Slime integration.
+MILES_MUSA_PATCH_AT_STARTUP=1 enables shared Megatron patches and Miles integration.
 """
 
 import os
@@ -16,6 +14,27 @@ _SLIME_STARTUP_VALUES = _TRUTHY_STARTUP_VALUES | {"slime"}
 _MILES_STARTUP_VALUES = _TRUTHY_STARTUP_VALUES | {"miles"}
 
 startup_command = " ".join(getattr(sys, "orig_argv", sys.argv))
+
+
+pretrain_requested = (
+    os.environ.get("PRETRAIN_MUSA_PATCH_AT_STARTUP", "").strip().lower()
+    in _TRUTHY_STARTUP_VALUES
+)
+if (
+    pretrain_requested
+    and os.environ.get("MUSA_TITAN_PRETRAIN_BOOTSTRAPPING") != "1"
+):
+    os.environ["MUSA_TITAN_PRETRAIN_BOOTSTRAPPING"] = "1"
+    try:
+        import musa_titan
+
+        musa_titan.apply_pretrain_patch()
+    except Exception as error:
+        # Python's site module otherwise logs ordinary exceptions and continues.
+        raise SystemExit("MUSA pretraining patch initialization failed") from error
+    finally:
+        os.environ.pop("MUSA_TITAN_PRETRAIN_BOOTSTRAPPING", None)
+
 miles_requested = os.environ.get("MILES_MUSA_PATCH_AT_STARTUP", "").strip().lower() in _MILES_STARTUP_VALUES
 slime_requested = os.environ.get("SLIME_MUSA_PATCH_AT_STARTUP", "").strip().lower() in _SLIME_STARTUP_VALUES
 if (

@@ -24,7 +24,6 @@ export ENABLE_PROFILER=0
 export OMP_NUM_THREADS=4
 export MUSA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
 export MUSA_KERNEL_TIMEOUT=3200000
-export ACCELERATOR_BACKEND="musa"
 export MCCL_PROTOS=2
 export MCCL_CHECK_POINTERS=0
 export CUDA_DEVICE_MAX_CONNECTIONS=1
@@ -33,8 +32,9 @@ export MUSA_BLOCK_SCHEDULE_MODE=1
 export MCCL_ALGOS=1
 export MCCL_BUFFSIZE=20480000
 
-MEGATRON_PATH=${PATCH_HOME}/../Megatron-LM
-export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
+export MEGATRON_PATH=${MEGATRON_PATH:-${PATCH_HOME}/../Megatron-LM}
+export PYTHONPATH="${PATCH_HOME}:${MEGATRON_PATH}${PYTHONPATH:+:${PYTHONPATH}}"
+export PRETRAIN_MUSA_PATCH_AT_STARTUP=1
 
 if [ ! -d "${MEGATRON_PATH}/build" ]; then
     cd "${MEGATRON_PATH}"
@@ -197,7 +197,7 @@ TRANSFORMER_ENGINE_ARGS=(
     --transformer-impl transformer_engine
 )
 
-cmd="torchrun ${DISTRIBUTED_ARGS[@]} $WORK_HOME/pretrain_deepseekv2.py \
+cmd="torchrun ${DISTRIBUTED_ARGS[@]} ${MEGATRON_PATH}/pretrain_gpt.py \
         ${MODEL_ARGS[@]} \
         ${TRAINING_ARGS[@]} \
         ${REGULARIZATION_ARGS[@]}

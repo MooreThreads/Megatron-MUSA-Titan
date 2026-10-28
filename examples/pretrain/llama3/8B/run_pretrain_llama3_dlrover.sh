@@ -6,7 +6,6 @@ export OMP_NUM_THREADS=4
 export MUSA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
 export MUSA_KERNEL_TIMEOUT=3200000
 export MUSA_BLOCK_SCHEDULE_MODE=1
-export ACCELERATOR_BACKEND="musa"
 export MCCL_PROTOS=2
 export MUSA_PRINT_ENV=1
 export MCCL_CHECK_POINTERS=0
@@ -36,9 +35,9 @@ FLASH_ATTENTION_SKIP_CUDA_BUILD=TRUE python setup.py develop
 popd
 ############################################################## dev install flash-atten #########################################
 
-MEGATRON_PATH=${PATCH_HOME}/../Megatron-LM
-MEGATRON_PATH=/home/megatron_0.9/Megatron-LM/
-export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
+export MEGATRON_PATH=${MEGATRON_PATH:-${PATCH_HOME}/../Megatron-LM}
+export PYTHONPATH="${PATCH_HOME}:${MEGATRON_PATH}${PYTHONPATH:+:${PYTHONPATH}}"
+export PRETRAIN_MUSA_PATCH_AT_STARTUP=1
 if [ ! -d "${MEGATRON_PATH}/build" ]; then
     cd "${MEGATRON_PATH}"
     python setup.py build_ext --inplace
@@ -204,7 +203,7 @@ LOGGING_ARGS="
 
 TORCHRUN=dlrover-run
 
-cmd="$TORCHRUN ${DISTRIBUTED_ARGS[@]} $WORK_HOME/pretrain_gpt.py \
+cmd="$TORCHRUN ${DISTRIBUTED_ARGS[@]} ${MEGATRON_PATH}/pretrain_gpt.py \
         ${MODEL_ARGS[@]} \
         ${TRAINING_ARGS[@]} \
         ${REGULARIZATION_ARGS[@]}

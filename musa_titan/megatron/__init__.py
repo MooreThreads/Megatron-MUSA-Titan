@@ -2,6 +2,48 @@
 
 import os
 import sys
+from musa_titan.utils.patching import git_commit, replace_attr
+
+def _warn_if_megatron_tag_mismatch():
+    """Warn when the selected Megatron checkout differs from the expected tag."""
+    import subprocess
+
+    expected_tag = "core_v0.19.0"
+    patch_home = os.environ.get("PATCH_HOME") or os.path.join(
+        os.path.dirname(__file__), "..", ".."
+    )
+    megatron_path = os.path.realpath(
+        os.environ.get("MEGATRON_PATH")
+        or os.path.join(patch_home, "..", "Megatron-LM")
+    )
+
+    def commit_at(ref):
+        return subprocess.check_output(
+            ["git", "-C", megatron_path, "rev-parse", "--verify", ref],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=5,
+        ).strip()
+
+    try:
+        head = commit_at("HEAD^{commit}")
+        tagged_commit = commit_at(f"refs/tags/{expected_tag}^{{commit}}")
+    except (OSError, subprocess.SubprocessError) as error:
+        print(
+            f"WARNING: cannot verify Megatron-LM tag {expected_tag} "
+            f"at {megatron_path}: {error}",
+            file=sys.stderr,
+        )
+        return
+
+    # A branch at the tagged commit is valid; the branch name need not match.
+    if head != tagged_commit:
+        print(
+            f"WARNING: Megatron-LM at {megatron_path} (HEAD {head[:12]}) "
+            f"does not match tag {expected_tag} ({tagged_commit[:12]}).",
+            file=sys.stderr,
+        )
+
 
 _patch_applied = False
 
@@ -11,6 +53,8 @@ def apply_patch():
     global _patch_applied
     if _patch_applied:
         return
+
+    _warn_if_megatron_tag_mismatch()
 
     # Import fused_layer_norm before Transformer Engine.
     from . import fused_layer_norm
@@ -46,11 +90,11 @@ def apply_patch():
     from . import utils
     if int(os.getenv("USE_MUSA_MOE", 0)):
         from . import moe_utils
-    from . import router
+    if int(os.getenv("USE_MUSA_ROUTER", 0)):
+        from . import router
     from . import arguments
     if int(os.getenv("USE_RECOMPUTE_VARIANCE", 0)):
         from . import recomupte_variance
-    from . import optimizer
     if int(os.getenv("USE_EPX", 0)):
         from . import parallel_state
         from . import fault_tolerance_epx
@@ -60,22 +104,35 @@ def apply_patch():
         from . import deepep_ace
     from . import core_pipeline_parallel_schedules
     from . import yarn_rotary_pos_embedding
-    from . import ckpt_torch_dist
+    # from . import ckpt_torch_dist
 
-    def set_jit_fusion_options():
+    def set_jit_fusion_options(tp_size=None):
         pass
 
-    import megatron.training.initialize
-    megatron.training.training.set_jit_fusion_options = set_jit_fusion_options
-    megatron.training.initialize.set_jit_fusion_options = set_jit_fusion_options
+    from megatron.training import initialize, training
+    _patch_metadata = {
+        "commits": {"megatron": git_commit(initialize.__file__)},
+        "authored": {
+            "author": "Xiaoteng Cui",
+            "modified_date": "2026-10-29",
+            "upstream": {"megatron": {
+                "branch": "core_v0.19.0",
+                "commit": "5be9626709af2722333bf54797c954c09edeada3",
+                "commit_date": "2026-08-19T18:51:14+00:00",
+            }},
+        },
+        "current_path": "musa_titan/megatron/__init__.py",
+        "commit_branch_verified": True,
+    }
 
-    import megatron.legacy.fused_kernels
-    megatron.legacy.fused_kernels.load = lambda args: None
+    replace_attr(
+        initialize, "set_jit_fusion_options", set_jit_fusion_options,
+        reason="Skip CUDA JIT fusion setup on MUSA",
+        upstream_path="megatron.training.initialize.set_jit_fusion_options",
+        aliases=(training,),
+        **_patch_metadata,
+    )
 
-    def _compile_dependencies():
-        pass
-
-    megatron.training.initialize._compile_dependencies = _compile_dependencies
     _patch_applied = True
 
 

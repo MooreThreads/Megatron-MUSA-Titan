@@ -1,37 +1,12 @@
 # Feature usage and environment variables
 
-This guide covers the Pretraining and RL features listed in the project README.
-Set environment variables in the Bash script that starts **each training worker**,
-before Python imports the training libraries. An export on the launcher node is
-not automatically forwarded through SSH or Ray. Existing example scripts may
-also overwrite exported values; edit the worker-side script when necessary.
-
-## Basic setup
-
-```bash
-export ACCELERATOR_BACKEND="musa"
-# Run from this repository's root; adjust the Megatron checkout path as needed.
-export PYTHONPATH="$PWD:$PWD/../Megatron-LM${PYTHONPATH:+:$PYTHONPATH}"
-```
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `ACCELERATOR_BACKEND` | `musa` in the example Python entry points | Selects the MUSA initialization path. It does not activate adaptations without the Python call below. |
-| `PYTHONPATH` | Environment-dependent | Makes this repository and the selected Megatron checkout importable. |
-
-At the beginning of the pretraining entry point, before importing Megatron:
-
-```python
-import os
-
-if os.getenv("ACCELERATOR_BACKEND", "musa") == "musa":
-    from musa_titan import apply_pretrain_patch
-    apply_pretrain_patch()
-```
+This guide covers the pretraining and RL features listed in the project README.
 
 ## Pretraining
 
 ### Blockwise FP8 training
+
+**Temporarily unavailable; migration will be completed in the next release.**
 
 The fp8 recipe adds these Megatron arguments:
 
@@ -46,6 +21,8 @@ The MT-TransformerEngine maps `MXFP8BlockScaling` to its
 `MTFP8BlockScaling` implementation. 
 
 ### DeepEP over ACE
+
+**Temporarily unavailable; migration will be completed in the next release.**
 
 ```bash
 export USE_DEEPEP_ACE=1
@@ -67,6 +44,8 @@ This requires an ACE-capable DeepEP build exposing `get_ace_combine_buffer`
 
 ### EP communication overlap over DeepEP/ACE
 
+**Temporarily unavailable; migration will be completed in the next release.**
+
 Keep the DeepEP/ACE configuration above and add:
 
 ```text
@@ -82,6 +61,8 @@ requires EP overlap and a supported non-legacy grouped-GEMM implementation.
 
 ### Activation offloading with VPP and 1F1B
 
+**Temporarily unavailable; migration will be completed in the next release.**
+
 Enable offloading through customized Megatron arguments, not an environment switch:
 
 ```text
@@ -94,6 +75,8 @@ The current Titan configuration requires **PP size >= 3**.
 
 
 ### RDMA-backend PP communication overlap
+
+**Temporarily unavailable; migration will be completed in the next release.**
 
 We use Mooncake P2P RDMA to overlap pipeline-parallel (PP) communication with
 computation under virtual pipeline parallelism (VPP). Activations and gradients

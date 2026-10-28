@@ -19,8 +19,9 @@ export OMP_NUM_THREADS=4
 export CUDA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
 export NCCL_PROTOS=2
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-MEGATRON_PATH=${PATCH_HOME}/Megatron-LM-240521
-export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
+export MEGATRON_PATH=${MEGATRON_PATH:-${PATCH_HOME}/../Megatron-LM}
+export PYTHONPATH="${PATCH_HOME}:${MEGATRON_PATH}${PYTHONPATH:+:${PYTHONPATH}}"
+export PRETRAIN_MUSA_PATCH_AT_STARTUP=0
 
 if [ ! -d "${MEGATRON_PATH}/build" ]; then
     cd "${MEGATRON_PATH}"
@@ -171,7 +172,7 @@ MOE_ARGS=(
 #     )
 # fi
 
-cmd="torchrun ${DISTRIBUTED_ARGS[@]} $WORK_HOME/pretrain_mixtral.py \
+cmd="torchrun ${DISTRIBUTED_ARGS[@]} ${MEGATRON_PATH}/pretrain_gpt.py \
         ${MODEL_ARGS[@]} \
         ${TRAINING_ARGS[@]} \
         ${REGULARIZATION_ARGS[@]}

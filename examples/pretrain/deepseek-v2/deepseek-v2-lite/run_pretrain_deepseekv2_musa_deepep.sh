@@ -28,7 +28,6 @@ export DIST_BACKEND=${DIST_BACKEND:-'nccl'}
 export OMP_NUM_THREADS=4
 export MUSA_VISIBLE_DEVICES=${MUSA_VISIBLE_DEVICES:-'0,1,2,3,4,5,6,7'}
 export MUSA_KERNEL_TIMEOUT=3200000
-export ACCELERATOR_BACKEND="musa"
 export MCCL_PROTOS=2
 export MCCL_ALGOS=1
 export MCCL_BUFFSIZE=20971520
@@ -51,8 +50,9 @@ export NO_LOSS_REDUCE=0
 export USE_MUSA_MOE=1
 export USE_CE_ALLTOALL=1
 
-MEGATRON_PATH=${PATCH_HOME}/../Megatron-LM
-export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
+export MEGATRON_PATH=${MEGATRON_PATH:-${PATCH_HOME}/../Megatron-LM}
+export PYTHONPATH="${PATCH_HOME}:${MEGATRON_PATH}${PYTHONPATH:+:${PYTHONPATH}}"
+export PRETRAIN_MUSA_PATCH_AT_STARTUP=1
 export LD_LIBRARY_PATH=/usr/local/musa/lib:$LD_LIBRARY_PATH
 
 if [ ! -d "${MEGATRON_PATH}/build" ]; then
@@ -258,7 +258,7 @@ TRANSFORMER_ENGINE_ARGS=(
 #     )
 # fi
 
-cmd="torchrun ${DISTRIBUTED_ARGS[@]} $WORK_HOME/pretrain_deepseekv2.py \
+cmd="torchrun ${DISTRIBUTED_ARGS[@]} ${MEGATRON_PATH}/pretrain_gpt.py \
         ${MODEL_ARGS[@]} \
         ${TRAINING_ARGS[@]} \
         ${REGULARIZATION_ARGS[@]}

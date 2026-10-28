@@ -36,7 +36,6 @@ export PROFILER_WITH_STACK=${PROFILER_WITH_STACK:-1}
 export OMP_NUM_THREADS=4
 export MUSA_VISIBLE_DEVICES='0,1,2,3,4,5,6,7'
 export MUSA_EXECUTION_TIMEOUT=480000
-export ACCELERATOR_BACKEND="musa"
 export MCCL_PROTOS=2
 export MCCL_CHECK_POINTERS=0
 export CUDA_DEVICE_MAX_CONNECTIONS=1
@@ -57,8 +56,9 @@ export MCCL_IB_RETRY_CNT=7
 export LD_LIBRARY_PATH="${MUSA_HOME}/lib:${LD_LIBRARY_PATH:-}"
 export MCCL_LIB=${MCCL_LIB:-"${MUSA_HOME}/lib/libmccl.so"}
 export MUSA_ERROR_DUMP_PATH=${MUSA_ERROR_DUMP_PATH:-"${ARTIFACT_ROOT}/error_dumps/$(date "+%Y.%m.%d-%H:%M:%S")"}
-MEGATRON_PATH=${PATCH_HOME}/../Megatron-LM
-export PYTHONPATH=${MEGATRON_PATH}:${PATCH_HOME}:$PYTHONPATH
+export MEGATRON_PATH=${MEGATRON_PATH:-${PATCH_HOME}/../Megatron-LM}
+export PYTHONPATH="${PATCH_HOME}:${MEGATRON_PATH}${PYTHONPATH:+:${PYTHONPATH}}"
+export PRETRAIN_MUSA_PATCH_AT_STARTUP=1
 export USE_DEEPEP_ACE=1
 export EP_BALANCE_INFO=0
 export MUSA_LOG=0x1
@@ -322,12 +322,12 @@ unset MLFLOW_TRACKING_URI
 unset MCCL_IB_HCA
 
 NUMA_BIND_CORES=${NUMA_BIND_CORES:-1}
-TRAIN_ENTRYPOINT=("$WORK_HOME/pretrain_kimi.py")
+TRAIN_ENTRYPOINT=("${MEGATRON_PATH}/pretrain_gpt.py")
 if [[ "$NUMA_BIND_CORES" != "0" ]]; then
     # local rank 0--3 use NUMA 0 and 4--7 use NUMA 1; each rank gets eight
     # physical CPU cores plus their SMT siblings.
     DISTRIBUTED_ARGS+=(--no-python)
-    TRAIN_ENTRYPOINT=("$WORK_HOME/kimi-k2/numa_bind_by_node.sh" python "$WORK_HOME/pretrain_kimi.py")
+    TRAIN_ENTRYPOINT=("$WORK_HOME/kimi-k2/numa_bind_by_node.sh" python "${MEGATRON_PATH}/pretrain_gpt.py")
 fi
 
 torchrun "${DISTRIBUTED_ARGS[@]}" "${TRAIN_ENTRYPOINT[@]}" \

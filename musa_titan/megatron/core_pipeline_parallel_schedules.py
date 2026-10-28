@@ -1,54 +1,34 @@
+"""Profile native pipeline calls while preserving the current Core ABI."""
 import os
-import megatron
+from musa_titan.utils.patching import git_commit, replace_attr
+from megatron.core.pipeline_parallel import schedules
 from .utils import record_function_decorator
 
-original_forward_step = megatron.core.pipeline_parallel.schedules.forward_step
-original_backward_step = megatron.core.pipeline_parallel.schedules.backward_step
+if int(os.getenv("ENABLE_PROFILER", "0")):
+    _patch_metadata = {
+        "commits": {"megatron": git_commit(schedules.__file__)},
+        "authored": {
+            "author": "Xiaoteng Cui",
+            "modified_date": "2026-10-29",
+            "upstream": {"megatron": {
+                "branch": "core_v0.19.0",
+                "commit": "5be9626709af2722333bf54797c954c09edeada3",
+                "commit_date": "2026-08-19T18:51:14+00:00",
+            }},
+        },
+        "current_path": "musa_titan/megatron/core_pipeline_parallel_schedules.py",
+        "commit_branch_verified": True,
+    }
 
-
-@record_function_decorator
-def forward_step(
-    forward_step_func,
-    data_iterator,
-    model,
-    num_microbatches,
-    input_tensor,
-    forward_data_store,
-    config,
-    cp_group_size,
-    collect_non_loss_data=False,
-    checkpoint_activations_microbatch=None,
-    is_first_microbatch=False,
-    current_microbatch=None,
-    vp_stage=None,
-    is_last_stage=True,
-):
-    return original_forward_step(
-        forward_step_func,
-        data_iterator,
-        model,
-        num_microbatches,
-        input_tensor,
-        forward_data_store,
-        config,
-        cp_group_size,
-        collect_non_loss_data,
-        checkpoint_activations_microbatch,
-        is_first_microbatch,
-        current_microbatch,
-        vp_stage,
-        is_last_stage,
+    replace_attr(
+        schedules, "forward_step", record_function_decorator(schedules.forward_step),
+        reason="Annotate native pipeline forward_step calls when profiling is enabled",
+        upstream_path="megatron.core.pipeline_parallel.schedules.forward_step",
+        **_patch_metadata,
     )
-
-
-@record_function_decorator
-def backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, config, pipeline_model_parallel_size=1):
-    return original_backward_step(
-        input_tensor, output_tensor, output_tensor_grad, model_type, config, pipeline_model_parallel_size
+    replace_attr(
+        schedules, "backward_step", record_function_decorator(schedules.backward_step),
+        reason="Annotate native pipeline backward_step calls when profiling is enabled",
+        upstream_path="megatron.core.pipeline_parallel.schedules.backward_step",
+        **_patch_metadata,
     )
-
-
-enable_profiler = int(os.getenv("ENABLE_PROFILER", 0))
-if enable_profiler:
-    megatron.core.pipeline_parallel.schedules.forward_step = forward_step
-    megatron.core.pipeline_parallel.schedules.backward_step = backward_step
