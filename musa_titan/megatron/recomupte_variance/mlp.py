@@ -138,7 +138,7 @@ def MLP_custom_func_first(self, hidden_states):
     return intermediate_parallel
 ## HACK(huang.huang)
 
-from transformer_engine.musa.pytorch.utils import replace_attr, add_attr
+from transformer_engine.pytorch.utils import replace_attr, add_attr
 from megatron.core.transformer.mlp import MLP
 replace_attr(MLP,"forward", MLP_forward)
 add_attr(MLP,"custom_func_first", MLP_custom_func_first)

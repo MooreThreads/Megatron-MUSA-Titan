@@ -238,7 +238,7 @@ def SharedExpertMLP_forward(self, hidden_states, no_recompute=False):
     return output
 ## HACK(huang.huang)
 
-from transformer_engine.musa.pytorch.utils import replace_attr
+from transformer_engine.pytorch.utils import replace_attr
 from megatron.core.transformer.moe.moe_layer import MoELayer
 replace_attr(MoELayer,"forward", MoELayer_forward)
 replace_attr(SharedExpertMLP,"forward", SharedExpertMLP_forward)

@@ -11,7 +11,7 @@ from megatron.core.num_microbatches_calculator import get_num_microbatches
 from megatron.core.utils import get_batch_on_this_cp_rank
 from megatron.training.global_vars import get_args
 from megatron.training.utils import print_rank_0, unwrap_model
-from transformer_engine.pytorch.cpu_offload import get_fine_grained_offload_handler
+from musa_titan.utils.offload import get_fine_grained_offload_handler
 from megatron.core.transformer.moe.moe_utils import clear_aux_losses_tracker
 
 
@@ -248,8 +248,10 @@ def _dummy_warmup_forward_local(model_chunk):
 def dummy_warmup_step(model, optimizer):
     """Run one dummy microbatch to trigger cold-start kernels without updating weights."""
     args = get_args()
-    offload_handler = get_fine_grained_offload_handler()
-    offload_handler.num_microbatches = 1
+    offload_handler = (get_fine_grained_offload_handler()
+                       if get_fine_grained_offload_handler is not None else None)
+    if offload_handler is not None:
+        offload_handler.num_microbatches = 1
 
     try:
         for model_chunk in model:
@@ -265,7 +267,8 @@ def dummy_warmup_step(model, optimizer):
     finally:
         # Keep warmup invisible to the real training iteration: no optimizer step, no LR step,
         # no iteration/sample accounting, and no leftover gradients after optional grad sync.
-        offload_handler.num_microbatches = get_num_microbatches()
+        if offload_handler is not None:
+            offload_handler.num_microbatches = get_num_microbatches()
         for model_chunk in model:
             model_chunk.zero_grad_buffer()
         optimizer.zero_grad()

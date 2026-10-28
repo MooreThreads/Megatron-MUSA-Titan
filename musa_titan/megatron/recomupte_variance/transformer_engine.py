@@ -260,7 +260,7 @@ def TEDotProductAttention_forward_after_fa(self, *args):
 # HACK(huang.huang)
 
 
-from transformer_engine.musa.pytorch.utils import replace_attr, add_attr
+from transformer_engine.pytorch.utils import replace_attr, add_attr
 
 replace_attr(TEDotProductAttention,"__init__", TEDotProductAttention__init__)
 add_attr(TEDotProductAttention, "forward_before_fa", TEDotProductAttention_forward_before_fa)

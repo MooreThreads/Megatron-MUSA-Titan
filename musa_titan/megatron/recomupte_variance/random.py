@@ -303,7 +303,7 @@ def checkpointViranceAttention(run_function, last_function, distribute_saved_act
 # HACK(huang.huang)
 
 
-from transformer_engine.musa.pytorch.utils import add_attr
+from transformer_engine.pytorch.utils import add_attr
 from megatron.core import tensor_parallel
 add_attr(tensor_parallel, 'checkpointVirance', checkpointVirance)
 add_attr(tensor_parallel, 'checkpointViranceAttention', checkpointViranceAttention)

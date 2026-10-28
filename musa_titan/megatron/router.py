@@ -28,7 +28,7 @@ from megatron.core.transformer.moe.moe_utils import (
 )
 
 from megatron.core.transformer.moe.router import TopKRouter
-from transformer_engine.musa.pytorch.utils import replace_attr, add_attr
+from transformer_engine.pytorch.utils import replace_attr, add_attr
 
 from megatron.training.global_vars import (
     get_args,

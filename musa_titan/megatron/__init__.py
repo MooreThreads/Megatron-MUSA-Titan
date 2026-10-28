@@ -45,6 +45,33 @@ def _warn_if_megatron_tag_mismatch():
         )
 
 
+def _warn_if_TE_version_mismatch():
+    """Warn if an installed Transformer Engine is older than 2.13."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    # Inspect the installed version without importing TE.
+    try:
+        te_version = version("transformer-engine")
+    except PackageNotFoundError:
+        return
+
+    try:
+        from packaging.version import Version
+
+        current_version = Version(te_version)
+        minimum_version = Version("2.13")
+    except (ImportError, ValueError, TypeError) as error:
+        print(f"WARNING: cannot verify Transformer Engine version: {error}", file=sys.stderr)
+        return
+
+    if current_version < minimum_version:
+        print(
+            f"WARNING: Transformer Engine {te_version} is installed; "
+            "version >= 2.13 is expected.",
+            file=sys.stderr,
+        )
+
+
 _patch_applied = False
 
 
@@ -55,6 +82,7 @@ def apply_patch():
         return
 
     _warn_if_megatron_tag_mismatch()
+    _warn_if_TE_version_mismatch()
 
     # Import fused_layer_norm before Transformer Engine.
     from . import fused_layer_norm
@@ -66,8 +94,6 @@ def apply_patch():
 
     get_device_compute_capability = _get_device_compute_capability
     from packaging.version import Version as PkgVersion
-    from transformer_engine.pytorch.attention import _flash_attn_version
-    _flash_attn_version = PkgVersion("2.5.0")
 
     if os.getenv("ENABLE_ZERO_BUBBLE", "0") == "1":
         from . import zbb_light

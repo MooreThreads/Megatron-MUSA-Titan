@@ -641,7 +641,7 @@ def _DeepepManager_get_permuted_hidden_states_by_experts(self, hidden_states: to
     return hidden_states, permuted_probs
 
 
-from transformer_engine.musa.pytorch.utils import replace_attr
+from transformer_engine.pytorch.utils import replace_attr
 from megatron.core.transformer.moe.token_dispatcher import MoEAlltoAllTokenDispatcher, _DeepepManager
 
 replace_attr(MoEAlltoAllTokenDispatcher, '__init__', MoEAlltoAllTokenDispatcher___init__)

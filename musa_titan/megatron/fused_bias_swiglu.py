@@ -142,13 +142,15 @@ def triton_weighted_silu_backward(
     return dx, dw
 
 
-from transformer_engine.pytorch.cpu_offload import set_offloading_param, get_fine_grained_offload_handler, has_acivation_offloading_param
+from musa_titan.utils.offload import set_offloading_param, get_fine_grained_offload_handler, has_acivation_offloading_param
 
 class TritonWeightedSwiGLUFunction(torch.autograd.Function):
     @staticmethod
     # bias is an optional argument
     def forward(ctx, input, weights, fp8_input_store, fine_grained_offload: bool = False):
-        fine_grained_offload_handler = get_fine_grained_offload_handler()
+        fine_grained_offload_handler = (get_fine_grained_offload_handler()
+                                        if get_fine_grained_offload_handler is not None else None)
+        fine_grained_offload = fine_grained_offload and fine_grained_offload_handler is not None
         input_for_backward = input.to(torch.float8_e4m3fn) if fp8_input_store else input
         if fine_grained_offload and not has_acivation_offloading_param(input_for_backward) and fine_grained_offload_handler.should_offload():
             set_offloading_param(input_for_backward, 'fine_grained_offloading', 'moe_fused_swiglu_input')
@@ -171,7 +173,8 @@ class TritonWeightedSwiGLUFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        fine_grained_offload_handler = get_fine_grained_offload_handler()
+        fine_grained_offload_handler = (get_fine_grained_offload_handler()
+                                        if get_fine_grained_offload_handler is not None else None)
         if ctx.tensor_tag != None:
             (weights, ) = ctx.saved_tensors
             input = ctx.input_for_backward
@@ -204,12 +207,39 @@ class MusaSwiGLUFunction(torch.autograd.Function):
 
 
 
-import megatron.core.fusions.fused_bias_swiglu
-megatron.core.fusions.fused_bias_swiglu.SwiGLUFunction = MusaSwiGLUFunction
+from megatron.core.fusions import fused_bias_swiglu
+from musa_titan.utils.patching import git_commit, replace_attr
+
+_patch_metadata = {
+    "commits": {"megatron": git_commit(fused_bias_swiglu.__file__)},
+    "authored": {
+        "author": "Xiaoteng Cui",
+        "modified_date": "2026-10-29",
+        "upstream": {"megatron": {
+            "branch": "core_v0.19.0",
+            "commit": "5be9626709af2722333bf54797c954c09edeada3",
+            "commit_date": "2026-08-19T18:51:14+00:00",
+        }},
+    },
+    "current_path": "musa_titan/megatron/fused_bias_swiglu.py",
+    "commit_branch_verified": True,
+}
+
+replace_attr(
+    fused_bias_swiglu, "SwiGLUFunction", MusaSwiGLUFunction,
+    reason="Use the MUSA fused SwiGLU implementation with optional activation offload",
+    upstream_path="megatron.core.fusions.fused_bias_swiglu.SwiGLUFunction",
+    **_patch_metadata,
+)
 
 # HACK (Xiaoteng Cui, 2026.05.11) Noticing the shape (M, N) of input tensor x of WeightedSwiGLUFunction, use Triton kernel here only when (N/2) is the power of 2 and N <= 8192.
 # Usually this "N" is related with "--moe-ffn-hidden-size" or "--moe-shared-expert-intermediate-size"
 import os
 use_TritonWeightedSwiGLU = int(os.getenv("USE_TRITON_WEIGHTED_SWIGLU", 0))
 if use_TritonWeightedSwiGLU:
-    megatron.core.fusions.fused_bias_swiglu.WeightedSwiGLUFunction = TritonWeightedSwiGLUFunction
+    replace_attr(
+        fused_bias_swiglu, "WeightedSwiGLUFunction", TritonWeightedSwiGLUFunction,
+        reason="Use the opt-in Triton weighted SwiGLU implementation",
+        upstream_path="megatron.core.fusions.fused_bias_swiglu.WeightedSwiGLUFunction",
+        **_patch_metadata,
+    )

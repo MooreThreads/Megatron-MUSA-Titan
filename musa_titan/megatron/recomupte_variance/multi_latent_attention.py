@@ -298,6 +298,6 @@ def MLASelfAttention_forward(
 # HACK(huang.huang)
 
 
-from transformer_engine.musa.pytorch.utils import replace_attr
+from transformer_engine.pytorch.utils import replace_attr
 
 replace_attr(MLASelfAttention, "forward", MLASelfAttention_forward)

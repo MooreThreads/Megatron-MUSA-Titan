@@ -8,7 +8,7 @@ import hashlib
 from megatron.training.global_vars import (
     get_args,
 )
-from transformer_engine.pytorch.cpu_offload import get_fine_grained_offload_handler
+from musa_titan.utils.offload import get_fine_grained_offload_handler
 
 ARGS = get_args()
 def get_list_key(key, num):
@@ -18,6 +18,8 @@ def get_iteration_id():
     return iteration_id
 
 def get_run_batch_id():
+    if get_fine_grained_offload_handler is None:
+        return None
     batch_id = get_fine_grained_offload_handler().current_microbatch_id
     return batch_id
 

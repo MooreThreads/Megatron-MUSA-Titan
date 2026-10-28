@@ -180,7 +180,7 @@ def backward_step(input_tensor, output_tensor, output_tensor_grad, model_type, c
     return input_tensor_grad
 
 
-from transformer_engine.musa.pytorch.utils import replace_attr
+from transformer_engine.pytorch.utils import replace_attr
 from megatron.core.pipeline_parallel import schedules
 replace_attr(schedules, "forward_step_calc_loss", forward_step_calc_loss)
 replace_attr(schedules, "backward_step", backward_step)

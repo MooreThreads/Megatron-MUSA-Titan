@@ -8,7 +8,7 @@ from megatron.training import training
 from megatron.training.training import train, train_step, training_log
 from megatron.training.global_vars import get_args, get_timers
 from megatron.core.num_microbatches_calculator import get_num_microbatches
-from transformer_engine.pytorch.cpu_offload import get_fine_grained_offload_handler
+from musa_titan.utils.offload import get_fine_grained_offload_handler
 from musa_titan.megatron.profiling import maybe_enable_profiling
 from musa_titan.megatron.moe_monitor import MoEMonitor
 
@@ -19,7 +19,8 @@ _profiler = None
 
 @wraps(train_step)
 def train_step_with_musa_hooks(*args, **kwargs):
-    get_fine_grained_offload_handler().num_microbatches = get_num_microbatches()
+    if get_fine_grained_offload_handler is not None:
+        get_fine_grained_offload_handler().num_microbatches = get_num_microbatches()
     result = train_step(*args, **kwargs)
     if _monitor is not None:
         _monitor.step()
@@ -30,7 +31,8 @@ def train_with_musa_hooks(*args, **kwargs):
     global _monitor, _profiler
     bound = _train_signature.bind(*args, **kwargs).arguments
     config = bound["config"]
-    get_fine_grained_offload_handler().init_by_config(config)
+    if get_fine_grained_offload_handler is not None:
+        get_fine_grained_offload_handler().init_by_config(config)
     run_args = get_args()
     _monitor = MoEMonitor(bound["model"], run_args.iteration)
     if _need_mlflow():

@@ -190,6 +190,6 @@ def TransformerLayer_forward(
     return output, context
 ## HACK(huang.huang)
 
-from transformer_engine.musa.pytorch.utils import replace_attr
+from transformer_engine.pytorch.utils import replace_attr
 from megatron.core.transformer.transformer_layer import TransformerLayer
 replace_attr(TransformerLayer, "forward", TransformerLayer_forward)

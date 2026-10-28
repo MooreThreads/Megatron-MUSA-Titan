@@ -11,7 +11,7 @@ import torch
 import json
 
 from megatron.training.global_vars import get_args
-from transformer_engine.pytorch.cpu_offload import get_fine_grained_offload_handler
+from musa_titan.utils.offload import get_fine_grained_offload_handler
 from megatron.core.rerun_state_machine import get_rerun_state_machine
 
 
@@ -30,6 +30,8 @@ def get_iteration_id():
     return iteration_id
 
 def get_run_batch_id():
+    if get_fine_grained_offload_handler is None:
+        return None
     batch_id = get_fine_grained_offload_handler().current_microbatch_id
     return batch_id
 
@@ -237,10 +239,28 @@ def musa_patched_get_device_arch_version():
     """ Returns MT GPU arch version """
     return torch.musa.get_device_properties(torch.device("musa:0")).major
 
-import megatron.training.utils
-megatron.training.utils.get_device_arch_version = musa_patched_get_device_arch_version
-# arguments.py does `from megatron.training.utils import get_device_arch_version`,
-# binding the original by value at import time; patching the utils module attribute
-# above does not update that copy. Rebind the name in arguments too.
-import megatron.training.arguments
-megatron.training.arguments.get_device_arch_version = musa_patched_get_device_arch_version
+from megatron.training import utils as training_utils, arguments
+from musa_titan.utils.patching import git_commit, replace_attr
+
+_patch_metadata = {
+    "commits": {"megatron": git_commit(training_utils.__file__)},
+    "authored": {
+        "author": "Xiaoteng Cui",
+        "modified_date": "2026-10-29",
+        "upstream": {"megatron": {
+            "branch": "core_v0.19.0",
+            "commit": "5be9626709af2722333bf54797c954c09edeada3",
+            "commit_date": "2026-08-19T18:51:14+00:00",
+        }},
+    },
+    "current_path": "musa_titan/megatron/utils.py",
+    "commit_branch_verified": True,
+}
+
+replace_attr(
+    training_utils, "get_device_arch_version", musa_patched_get_device_arch_version,
+    reason="Query the MUSA architecture when validating training arguments",
+    upstream_path="megatron.training.utils.get_device_arch_version",
+    aliases=(arguments,),
+    **_patch_metadata,
+)
