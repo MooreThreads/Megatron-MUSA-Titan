@@ -130,7 +130,7 @@ def apply_patch():
         from . import deepep_ace
     from . import core_pipeline_parallel_schedules
     from . import yarn_rotary_pos_embedding
-    # from . import ckpt_torch_dist
+    from . import ckpt_torch_dist
 
     def set_jit_fusion_options(tp_size=None):
         pass
