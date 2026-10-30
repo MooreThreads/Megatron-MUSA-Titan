@@ -1,4 +1,4 @@
-"""Shared helpers for the Slime and Miles MUSA integrations."""
+"""Shared helpers for the Slime, Miles, and VERL MUSA integrations."""
 
 from __future__ import annotations
 
@@ -27,6 +27,20 @@ _SLIME_AUTHORED = {
             "branch": "main",
             "commit": _SLIME_COMMIT,
             "commit_date": "Sep 19, 2026",
+        },
+    },
+}
+
+_VERL_COMMIT = "1876b06d0a3e4e71e06230be10af14492ca8a75b"
+_VERL_AUTHORED = {
+    "author": "kechun.wu",
+    "modified_date": "2026-10-29",
+    "upstream": {
+        "verl": {
+            "branch": "detached HEAD",
+            "tag": "v0.9.1",
+            "commit": _VERL_COMMIT,
+            "commit_date": "2026-09-20T15:21:24+08:00",
         },
     },
 }

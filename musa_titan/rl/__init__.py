@@ -8,9 +8,11 @@ __all__ = ["apply_patch", "apply_rl_patch"]
 
 _SLIME_PATCH_APPLIED = False
 _MILES_PATCH_APPLIED = False
+_VERL_PATCH_APPLIED = False
 _TRUTHY_STARTUP_VALUES = {"1", "true", "yes"}
 _SLIME_STARTUP_VALUES = _TRUTHY_STARTUP_VALUES | {"slime"}
 _MILES_STARTUP_VALUES = _TRUTHY_STARTUP_VALUES | {"miles"}
+_VERL_STARTUP_VALUES = _TRUTHY_STARTUP_VALUES | {"verl"}
 
 
 def _startup_requested(env_name: str, allowed: set[str]) -> bool:
@@ -61,7 +63,31 @@ def _patch_miles_at_startup_if_requested() -> bool:
     return True
 
 
+def _patch_verl_at_startup_if_requested() -> bool:
+    """Apply the optional VERL RL integration selected by the environment.
+
+    ``apply_rl_patch()`` is also used by standalone Megatron processes, so
+    importing ``musa_titan.rl.verl_musa`` unconditionally would add VERL and
+    Ray imports to every process.  The VERL startup marker is an explicit
+    opt-in used by VERL training actors.  SGLang-only and Ray helper processes
+    install import hooks from ``sitecustomize.py`` instead of calling this
+    function immediately.
+    """
+    global _VERL_PATCH_APPLIED
+    if _VERL_PATCH_APPLIED:
+        return True
+    if not _startup_requested("VERL_MUSA_PATCH_AT_STARTUP", _VERL_STARTUP_VALUES):
+        return False
+
+    from . import verl_musa
+
+    verl_musa.patch_after_import_verl()
+    _VERL_PATCH_APPLIED = True
+    return True
+
+
 def apply_patch():
-    """Apply optional slime/miles integrations selected by the environment."""
+    """Apply optional slime/miles/VERL integrations selected by the environment."""
     _patch_slime_at_startup_if_requested()
     _patch_miles_at_startup_if_requested()
+    _patch_verl_at_startup_if_requested()

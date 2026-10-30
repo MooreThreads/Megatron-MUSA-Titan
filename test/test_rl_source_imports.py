@@ -44,3 +44,6 @@ def test_rl_python_sources_import_musa_titan_helpers():
     # Miles setup resolves the root package dynamically through importlib so
     # its initializer can remain independent of the shared RL helper module.
     assert "importlib" in imported["musa_titan/rl/miles_musa/__init__.py"]
+    # VERL defers the root musa_titan import to its startup hook so lightweight
+    # Ray helper processes do not eagerly initialize the full patch stack.
+    assert "musa_titan" in imported["musa_titan/rl/verl_musa/import_hooks.py"]

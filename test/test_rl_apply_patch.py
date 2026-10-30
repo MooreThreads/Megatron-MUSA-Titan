@@ -25,6 +25,7 @@ def _load_rl(monkeypatch):
         "musa_titan.rl",
         "musa_titan.rl.miles_musa",
         "musa_titan.rl.slime_musa",
+        "musa_titan.rl.verl_musa",
     ):
         sys.modules.pop(name, None)
     if str(REPO_ROOT) not in sys.path:
@@ -37,8 +38,10 @@ def rl_mod(monkeypatch):
     module = _load_rl(monkeypatch)
     monkeypatch.setattr(module, "_SLIME_PATCH_APPLIED", False)
     monkeypatch.setattr(module, "_MILES_PATCH_APPLIED", False)
+    monkeypatch.setattr(module, "_VERL_PATCH_APPLIED", False)
     monkeypatch.delenv("SLIME_MUSA_PATCH_AT_STARTUP", raising=False)
     monkeypatch.delenv("MILES_MUSA_PATCH_AT_STARTUP", raising=False)
+    monkeypatch.delenv("VERL_MUSA_PATCH_AT_STARTUP", raising=False)
     return module
 
 
@@ -46,6 +49,7 @@ def test_apply_patch_skips_frameworks_without_env(rl_mod):
     rl_mod.apply_patch()
     assert "musa_titan.rl.slime_musa" not in sys.modules
     assert "musa_titan.rl.miles_musa" not in sys.modules
+    assert "musa_titan.rl.verl_musa" not in sys.modules
 
 
 @pytest.mark.parametrize("value", ["1", "true", "yes", "slime"])
@@ -94,6 +98,7 @@ def test_sitecustomize_calls_apply_rl_patch(monkeypatch, value):
     monkeypatch.setitem(sys.modules, "musa_titan", stub)
     monkeypatch.setenv("SLIME_MUSA_PATCH_AT_STARTUP", value)
     monkeypatch.delenv("MILES_MUSA_PATCH_AT_STARTUP", raising=False)
+    monkeypatch.delenv("VERL_MUSA_PATCH_AT_STARTUP", raising=False)
     monkeypatch.delenv("MUSA_TITAN_RL_BOOTSTRAPPING", raising=False)
     monkeypatch.delenv("MILES_MUSA_PATCH_BOOTSTRAPPING", raising=False)
 
@@ -110,6 +115,7 @@ def test_sitecustomize_ignores_miles_token_on_slime_env(monkeypatch):
     monkeypatch.setitem(sys.modules, "musa_titan", stub)
     monkeypatch.setenv("SLIME_MUSA_PATCH_AT_STARTUP", "miles")
     monkeypatch.delenv("MILES_MUSA_PATCH_AT_STARTUP", raising=False)
+    monkeypatch.delenv("VERL_MUSA_PATCH_AT_STARTUP", raising=False)
     monkeypatch.delenv("MUSA_TITAN_RL_BOOTSTRAPPING", raising=False)
     monkeypatch.delenv("MILES_MUSA_PATCH_BOOTSTRAPPING", raising=False)
 
@@ -126,32 +132,41 @@ def test_apply_rl_patch_wires_megatron_and_opt_in_frameworks(monkeypatch):
         sys.path.insert(0, str(REPO_ROOT))
 
     import musa_titan
+    from musa_titan.rl import common as rl_common
 
     called = []
     monkeypatch.setattr(musa_titan, "_apply_megatron_patch", lambda: called.append("megatron"))
     monkeypatch.setattr(musa_titan, "patch_sglang_cuda_compatibility", lambda: called.append("sglang"))
+    monkeypatch.setattr(rl_common, "patch_sglang_device_capability", lambda: None)
     monkeypatch.setattr(musa_titan, "patch_after_import_torch", lambda: called.append("torch"))
     monkeypatch.delenv("SLIME_MUSA_PATCH_AT_STARTUP", raising=False)
     monkeypatch.delenv("MILES_MUSA_PATCH_AT_STARTUP", raising=False)
+    monkeypatch.delenv("VERL_MUSA_PATCH_AT_STARTUP", raising=False)
 
     musa_titan.apply_rl_patch()
     assert called == ["megatron", "sglang", "torch"]
     assert "musa_titan.rl.slime_musa" not in sys.modules
     assert "musa_titan.rl.miles_musa" not in sys.modules
+    assert "musa_titan.rl.verl_musa" not in sys.modules
 
     fake_slime = ModuleType("musa_titan.rl.slime_musa")
     fake_slime.patch_after_import_slime = lambda: called.append("slime")
     fake_miles = ModuleType("musa_titan.rl.miles_musa")
     fake_miles.patch_after_import_miles = lambda: called.append("miles")
+    fake_verl = ModuleType("musa_titan.rl.verl_musa")
+    fake_verl.patch_after_import_verl = lambda: called.append("verl")
     monkeypatch.setitem(sys.modules, "musa_titan.rl.slime_musa", fake_slime)
     monkeypatch.setitem(sys.modules, "musa_titan.rl.miles_musa", fake_miles)
+    monkeypatch.setitem(sys.modules, "musa_titan.rl.verl_musa", fake_verl)
     monkeypatch.setenv("SLIME_MUSA_PATCH_AT_STARTUP", "1")
     monkeypatch.setenv("MILES_MUSA_PATCH_AT_STARTUP", "1")
+    monkeypatch.setenv("VERL_MUSA_PATCH_AT_STARTUP", "1")
 
     musa_titan.apply_rl_patch()
-    assert called == ["megatron", "sglang", "torch", "megatron", "sglang", "slime", "miles", "torch"]
+    assert called == ["megatron", "sglang", "torch", "megatron", "sglang", "slime", "miles", "verl", "torch"]
     assert musa_titan.rl._SLIME_PATCH_APPLIED is True
     assert musa_titan.rl._MILES_PATCH_APPLIED is True
+    assert musa_titan.rl._VERL_PATCH_APPLIED is True
 
 
 def _load_slime_musa(monkeypatch):
@@ -348,3 +363,105 @@ def test_patch_after_import_slime_failure_leaves_bootstrap_retryable(slime_musa,
     assert slime_musa.slime_update_weight_module is fake_update
     assert fake_update.connect_rollout_engines_from_distributed is slime_musa.patched_connect_rollout_engines_from_distributed
     assert fake_update.update_weights_from_distributed is slime_musa.patched_slime_update_weights_from_distributed
+
+
+@pytest.mark.parametrize("value", ["1", "true", "yes", "verl"])
+def test_verl_opt_in_installs_hooks(rl_mod, monkeypatch, value):
+    called = []
+    fake = ModuleType("musa_titan.rl.verl_musa")
+    fake.patch_after_import_verl = lambda: called.append("verl")
+    monkeypatch.setitem(sys.modules, "musa_titan.rl.verl_musa", fake)
+    monkeypatch.setenv("VERL_MUSA_PATCH_AT_STARTUP", value)
+
+    rl_mod.apply_patch()
+    assert called == ["verl"]
+    assert rl_mod._VERL_PATCH_APPLIED is True
+    assert "musa_titan.rl.slime_musa" not in sys.modules
+    assert "musa_titan.rl.miles_musa" not in sys.modules
+
+
+def test_verl_opt_in_ignores_slime_token(rl_mod, monkeypatch):
+    monkeypatch.setenv("VERL_MUSA_PATCH_AT_STARTUP", "slime")
+
+    rl_mod.apply_patch()
+    assert rl_mod._VERL_PATCH_APPLIED is False
+    assert "musa_titan.rl.verl_musa" not in sys.modules
+
+
+@pytest.mark.parametrize("value", ["1", "true", "yes", "verl"])
+def test_sitecustomize_verl_installs_finders_without_apply_rl_patch(monkeypatch, value):
+    import runpy
+
+    called = []
+    stub = ModuleType("musa_titan")
+    stub.apply_rl_patch = lambda: called.append("rl")
+    monkeypatch.setitem(sys.modules, "musa_titan", stub)
+    monkeypatch.setenv("VERL_MUSA_PATCH_AT_STARTUP", value)
+    monkeypatch.delenv("SLIME_MUSA_PATCH_AT_STARTUP", raising=False)
+    monkeypatch.delenv("MILES_MUSA_PATCH_AT_STARTUP", raising=False)
+    monkeypatch.setattr(sys, "meta_path", list(sys.meta_path))
+    sys.modules.pop("_musa_titan_verl_import_hooks", None)
+
+    runpy.run_path(str(REPO_ROOT / "sitecustomize.py"), run_name="not_sitecustomize")
+    assert called == []
+    assert any(type(finder).__name__ == "_VerlBootstrapFinder" for finder in sys.meta_path)
+    assert any(type(finder).__name__ == "_MusaModelRunnerFinder" for finder in sys.meta_path)
+
+
+def test_sitecustomize_verl_import_triggers_bootstrap(monkeypatch):
+    import runpy
+
+    called = []
+    musa_titan = ModuleType("musa_titan")
+    musa_titan.apply_rl_patch = lambda: called.append("rl")
+    rl = ModuleType("musa_titan.rl")
+    verl_musa = ModuleType("musa_titan.rl.verl_musa")
+    verl_musa.patch_after_import_verl = lambda: called.append("verl")
+    monkeypatch.setitem(sys.modules, "musa_titan", musa_titan)
+    monkeypatch.setitem(sys.modules, "musa_titan.rl", rl)
+    monkeypatch.setitem(sys.modules, "musa_titan.rl.verl_musa", verl_musa)
+    monkeypatch.setenv("VERL_MUSA_PATCH_AT_STARTUP", "1")
+    monkeypatch.delenv("SLIME_MUSA_PATCH_AT_STARTUP", raising=False)
+    monkeypatch.delenv("MILES_MUSA_PATCH_AT_STARTUP", raising=False)
+    monkeypatch.delenv("MEGATRON_PATH", raising=False)
+    monkeypatch.setattr(sys, "meta_path", list(sys.meta_path))
+    sys.modules.pop("_musa_titan_verl_import_hooks", None)
+
+    runpy.run_path(str(REPO_ROOT / "sitecustomize.py"), run_name="not_sitecustomize")
+    finder = next(item for item in sys.meta_path if type(item).__name__ == "_VerlBootstrapFinder")
+    assert finder.find_spec("verl") is None
+    assert called == ["verl"]
+
+def test_sitecustomize_verl_megatron_path_applies_rl_patch(monkeypatch):
+    import runpy
+
+    called = []
+    musa_titan = ModuleType("musa_titan")
+    musa_titan.apply_rl_patch = lambda: called.append("rl")
+    monkeypatch.setitem(sys.modules, "musa_titan", musa_titan)
+    monkeypatch.setenv("VERL_MUSA_PATCH_AT_STARTUP", "1")
+    monkeypatch.setenv("MEGATRON_PATH", "/test/megatron")
+    monkeypatch.delenv("SLIME_MUSA_PATCH_AT_STARTUP", raising=False)
+    monkeypatch.delenv("MILES_MUSA_PATCH_AT_STARTUP", raising=False)
+    monkeypatch.setattr(sys, "meta_path", list(sys.meta_path))
+    sys.modules.pop("_musa_titan_verl_import_hooks", None)
+
+    class FakeSpec:
+        pass
+
+    class FakeFinder:
+        def find_spec(self, fullname, path=None, target=None):
+            if fullname in {"megatron", "megatron.core", "mcore"}:
+                return FakeSpec()
+            return None
+
+    monkeypatch.setattr(
+        __import__("importlib").machinery.PathFinder,
+        "find_spec",
+        staticmethod(FakeFinder().find_spec),
+    )
+
+    runpy.run_path(str(REPO_ROOT / "sitecustomize.py"), run_name="not_sitecustomize")
+    finder = next(item for item in sys.meta_path if type(item).__name__ == "_VerlBootstrapFinder")
+    assert finder.find_spec("verl") is None
+    assert called == ["rl"]

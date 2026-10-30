@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+# Copy this file to set_env.sh and replace the placeholders with paths that
+# exist on every Ray node. The real set_env.sh is ignored by git.
+
+export MUSA_TITAN_PATH="/path/to/megatron-musa-titan"
+export VERL_PATH="/path/to/verl"
+export MEGATRON_PATH="/path/to/Megatron-LM"
+export MEGATRON_BRIDGE_PATH="/path/to/megatron-bridge/src"
+
+export MUSA_VISIBLE_DEVICES="${MUSA_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}"
+export MCCL_LIB="${MCCL_LIB:-/usr/local/musa/lib/libmccl.so}"
+export GLOO_SOCKET_IFNAME="${GLOO_SOCKET_IFNAME:-eth0}"
+export MUSA_LD_LIBRARY_PATH="${MUSA_LD_LIBRARY_PATH:-/usr/lib:/lib64:/usr/lib/x86_64-linux-gnu:/usr/local/musa/lib:/usr/local/lib:/usr/local/mtshmem/lib:/usr/local/openmpi/lib}"
+export RUNTIME_PYTHONPATH="${MUSA_TITAN_PATH}:${VERL_PATH}:${MEGATRON_PATH}:${MEGATRON_BRIDGE_PATH}${PYTHONPATH:+:${PYTHONPATH}}"
+export RUNTIME_LD_LIBRARY_PATH="${MUSA_LD_LIBRARY_PATH}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
