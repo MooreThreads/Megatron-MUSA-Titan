@@ -114,8 +114,6 @@ TRAINING_ARGS=(
     --qk-layernorm
     --decoder-last-pipeline-num-layers 6
     # --q-rms-recompute
-    --attn-recompute
-    --recompute-variance
     --enable-experimental
 )
 

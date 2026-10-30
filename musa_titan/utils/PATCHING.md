@@ -7,7 +7,7 @@ integrations must also update their imports:
 
 ```python
 from musa_titan.utils.mem_utils import MemMonitor
-from musa_titan.utils.utils import get_iteration_id
+from musa_titan.utils.utils import record_function_decorator
 from musa_titan.utils.patching import git_commit, replace_attr
 ```
 

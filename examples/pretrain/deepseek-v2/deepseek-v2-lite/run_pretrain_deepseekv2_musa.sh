@@ -44,7 +44,6 @@ export CUDA_DEVICE_MAX_CONNECTIONS=1
 # export MUSA_BLOCK_ARBITRATION_MODE=2
 export CPU_OPTIMIZER_PRECISION_AWARE_RECONFIG=${CPU_OPTIMIZER_PRECISION_AWARE_RECONFIG:-0}
 
-export USE_RECOMPUTE_VARIANCE=0
 export ENABLE_D2H_IN_PERMUTATION=0
 export NO_LOSS_REDUCE=0
 export USE_MUSA_MOE=1
@@ -136,11 +135,6 @@ TRAINING_ARGS=(
     # --overlap-grad-reduce
     # --overlap-param-gather
     # --overlap-param-gather-with-optimizer-step # only supported with interleaved pipeline parallelism
-    # --attn-recompute
-    # --recompute-variance
-    # --mlp-recompute
-    # --mla-rms-recompute
-    # --mlp-rms-recompute
     # --optimizer-cpu-offload
     # --optimizer-offload-fraction 1
     # --use-precision-aware-optimizer # cpu offload must be precision-aware

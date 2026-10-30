@@ -113,9 +113,6 @@ TRAINING_ARGS=(
     --distributed-backend nccl
     --multi-latent-attention
     --qk-layernorm
-    # --attn-recompute
-    # --recompute-variance
-    # --mlp-recompute
 )
 
 MLA_ARGS=(

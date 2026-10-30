@@ -116,11 +116,7 @@ def apply_patch():
     from . import utils
     if int(os.getenv("USE_MUSA_MOE", 0)):
         from . import moe_utils
-    if int(os.getenv("USE_MUSA_ROUTER", 0)):
-        from . import router
     from . import arguments
-    if int(os.getenv("USE_RECOMPUTE_VARIANCE", 0)):
-        from . import recomupte_variance
     if int(os.getenv("USE_EPX", 0)):
         from . import parallel_state
         from . import fault_tolerance_epx
@@ -128,7 +124,7 @@ def apply_patch():
         from . import ce_alltoall
     if int(os.getenv("USE_DEEPEP_ACE", 0)):
         from . import deepep_ace
-    from . import core_pipeline_parallel_schedules
+    from .profiling_annotation import core_pipeline_parallel_schedules
     from . import yarn_rotary_pos_embedding
     from . import ckpt_torch_dist
 

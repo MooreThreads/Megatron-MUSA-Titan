@@ -2,7 +2,7 @@
 import os
 from musa_titan.utils.patching import git_commit, replace_attr
 from megatron.core.pipeline_parallel import schedules
-from .utils import record_function_decorator
+from ..utils import record_function_decorator
 
 if int(os.getenv("ENABLE_PROFILER", "0")):
     _patch_metadata = {
@@ -16,7 +16,7 @@ if int(os.getenv("ENABLE_PROFILER", "0")):
                 "commit_date": "2026-08-19T18:51:14+00:00",
             }},
         },
-        "current_path": "musa_titan/megatron/core_pipeline_parallel_schedules.py",
+        "current_path": "musa_titan/megatron/profiling_annotation/core_pipeline_parallel_schedules.py",
         "commit_branch_verified": True,
     }
 

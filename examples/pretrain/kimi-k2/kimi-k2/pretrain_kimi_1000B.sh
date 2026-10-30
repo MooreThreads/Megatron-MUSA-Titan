@@ -47,7 +47,6 @@ export MCCL_NET_SHARED_BUFFERS=0
 export MCCL_IB_TC=136
 export MCCL_IB_QPS_PER_CONNECTION=16
 export MCCL_CROSS_NIC=0
-export USE_RECOMPUTE_VARIANCE=0
 export ENABLE_D2H_IN_PERMUTATION=0
 export NO_LOSS_REDUCE=${NO_LOSS_REDUCE:-1}
 # export USE_MUSA_MOE=1
@@ -176,11 +175,6 @@ TRAINING_ARGS=(
     --multi-latent-attention
     --qk-layernorm
     --enable-experimental
-    # --mlp-recompute
-    # --mlp-rms-recompute
-    # --recompute-variance
-    # --attn-recompute
-    # --mla-rms-recompute
     --recompute-granularity selective
     --recompute-modules mla_up_proj moe_act layernorm mlp
     --offload-moe-fc1-input
@@ -318,7 +312,6 @@ MULTI_TOKEN_PREDICTION_ARGS=(
     --mtp-depth ${MTP}
 )
 
-unset MLFLOW_TRACKING_URI
 unset MCCL_IB_HCA
 
 NUMA_BIND_CORES=${NUMA_BIND_CORES:-1}

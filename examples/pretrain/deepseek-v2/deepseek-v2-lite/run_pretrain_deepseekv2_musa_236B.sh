@@ -114,11 +114,6 @@ TRAINING_ARGS=(
     --multi-latent-attention
     --qk-layernorm
     --decoder-last-pipeline-num-layers 3
-    --attn-recompute
-    --recompute-variance
-    --mlp-recompute   
-    --mla-rms-recompute
-    --mlp-rms-recompute
 
     # --optimizer-cpu-offload    #yehua
     # --optimizer-offload-fraction 1.0 #yehua
