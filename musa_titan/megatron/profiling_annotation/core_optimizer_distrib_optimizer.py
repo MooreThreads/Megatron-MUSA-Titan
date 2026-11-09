@@ -1,15 +1,32 @@
+"""Annotate native distrib_optimizer.DistributedOptimizer methods without copying their interfaces."""
 
-from ..utils import record_function_decorator
 import os
 
-import megatron.core.optimizer.distrib_optimizer
-original_step_with_ready_grads = megatron.core.optimizer.distrib_optimizer.DistributedOptimizer.step_with_ready_grads
+from megatron.core.optimizer import distrib_optimizer
+from musa_titan.utils.patching import git_commit, replace_attr
 
+from ..utils import record_function_decorator
 
-@record_function_decorator
-def step_with_ready_grads(self):
-    return original_step_with_ready_grads(self)
+if int(os.getenv("ENABLE_PROFILER", "0")):
+    _patch_metadata = {
+        "commits": {"megatron": git_commit(distrib_optimizer.__file__)},
+        "authored": {
+            "author": "Xiaoteng Cui",
+            "modified_date": "2026-11-04",
+            "upstream": {"megatron": {
+                "branch": "core_v0.19.0",
+                "commit": "5be9626709af2722333bf54797c954c09edeada3",
+                "commit_date": "2026-08-19T18:51:14+00:00",
+            }},
+        },
+        "current_path": "musa_titan/megatron/profiling_annotation/core_optimizer_distrib_optimizer.py",
+        "commit_branch_verified": True,
+    }
 
-enable_profiler = int(os.getenv("ENABLE_PROFILER", 0))
-if enable_profiler:
-    megatron.core.optimizer.distrib_optimizer.DistributedOptimizer.step_with_ready_grads = step_with_ready_grads
+    replace_attr(
+        distrib_optimizer.DistributedOptimizer, "step_with_ready_grads",
+        record_function_decorator(distrib_optimizer.DistributedOptimizer.step_with_ready_grads),
+        reason="Annotate native distrib_optimizer.DistributedOptimizer.step_with_ready_grads calls",
+        upstream_path="megatron.core.optimizer.distrib_optimizer.DistributedOptimizer.step_with_ready_grads",
+        **_patch_metadata,
+    )
