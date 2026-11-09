@@ -83,8 +83,24 @@ def patched_slime_update_weights_from_distributed(
     converted_named_tensors: Sequence[tuple[str, torch.Tensor]],
     load_format: str | None = None,
 ) -> list[ObjectRef]:
-    """Send metadata through Ray and tensors through the configured transport."""
+    """Send metadata through Ray and tensors through the configured transport.
+
+    Full weight updates use the flattened-bucket protocol automatically when the
+    installed SGLang exposes multi-dtype support. Custom load formats (for
+    example delta updates) retain the per-parameter wire format.
+    """
     comm_mode = os.environ.get("UPDATE_MODE", "broadcast")
+    use_flattened_bucket = False
+    flattened_bucket_cls = None
+    if converted_named_tensors and load_format is None:
+        from slime.backends.megatron_utils.sglang import FlattenedTensorBucket
+
+        flattened_bucket_cls = FlattenedTensorBucket
+        use_flattened_bucket = bool(
+            getattr(FlattenedTensorBucket, "supports_multi_dtypes", False)
+        )
+
+    remote_load_format = "flattened_bucket" if use_flattened_bucket else load_format
     if comm_mode == "p2p-broadcast":
         group_rank = group.rank()
         global_rank = dist.get_global_rank(group, group_rank)
@@ -97,7 +113,7 @@ def patched_slime_update_weights_from_distributed(
             shapes=[param.shape for _, param in converted_named_tensors],
             group_name=group_name,
             weight_version=str(weight_version),
-            load_format=load_format,
+            load_format=remote_load_format,
         )
         for engine in rollout_engines
     ]
@@ -105,6 +121,11 @@ def patched_slime_update_weights_from_distributed(
 
     if comm_mode == "p2p-broadcast" and global_rank != 0:
         tensors = []
+    elif use_flattened_bucket:
+        flattened_bucket = flattened_bucket_cls(
+            named_tensors=list(converted_named_tensors)
+        ).get_flattened_tensor()
+        tensors = [flattened_bucket]
     else:
         tensors = [param.data for _, param in converted_named_tensors]
     try:
