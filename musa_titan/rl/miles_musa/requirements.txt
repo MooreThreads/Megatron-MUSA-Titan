@@ -1,0 +1,3 @@
+backports.strenum
+polars==1.42.1
+math_verify

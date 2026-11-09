@@ -40,7 +40,7 @@ ROLLOUT_ARGS=(
    --label-key reward_model
    --apply-chat-template
    --rollout-shuffle
-   --rm-type zero2one
+   --rm-type math
    --start-rollout-id 0 # Start Eval scoring from the initial step.
    --num-rollout 1000
    --rollout-batch-size 16
@@ -125,6 +125,7 @@ OPTIMIZER_ARGS=(
 )
 
 MAX_CONCURRENT_REQUESTS=32
+SESSION_ID="slime_demo_qwen3-30B-A3B"
 
 SGLANG_ARGS=(
    --sglang-device musa
@@ -150,6 +151,7 @@ SGLANG_ARGS=(
    --sglang-server-concurrency $MAX_CONCURRENT_REQUESTS
    --sglang-max-running-requests $MAX_CONCURRENT_REQUESTS
    --skip-eval-before-train # Skip evaluation at step 0.
+   --rollout-session-id "$SESSION_ID"
 )
 
 MISC_ARGS=(
@@ -193,9 +195,8 @@ fi
 RAY_DASHBOARD_PORT="${RAY_DASHBOARD_PORT:-8972}"
 LOG_DIR="${SCRIPT_DIR}/logs"
 mkdir -p "$LOG_DIR"
-LOG_FILE="${LOG_DIR}/slime_demo_qwen3-30B-A3B.log"
-JOB_ID="slime_demo_qwen3-30B-A3B_$(date +%Y%m%d-%H%M%S)"
-
+LOG_FILE="${LOG_DIR}/${SESSION_ID}.log"
+JOB_ID="${SESSION_ID}_$(date +%Y%m%d-%H%M%S)"
 
 RAY_ADDRESS="http://${HEAD_IP}:${RAY_DASHBOARD_PORT}" ray job submit \
    --runtime-env="$runtime_env" \

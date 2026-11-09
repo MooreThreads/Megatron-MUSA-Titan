@@ -9,11 +9,13 @@ from pathlib import Path
 from .compat import _REWRITE_IMPORT_NAMES, _rewrite_miles_source
 from .runtime_patches import (
     _patch_hf_arguments_module,
+    _patch_megatron_arguments_module,
     _patch_sglang_engine_module,
 )
 from .weight_update import _patch_broadcast_module
 
 _POST_LOAD_PATCHERS = {
+    "miles.backends.megatron_utils.arguments": _patch_megatron_arguments_module,
     "miles.backends.megatron_utils.update_weight.update_weight_from_distributed.broadcast": _patch_broadcast_module,
     "miles.backends.sglang_utils.sglang_engine": _patch_sglang_engine_module,
     "miles.utils.arguments": _patch_hf_arguments_module,

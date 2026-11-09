@@ -41,7 +41,7 @@ ROLLOUT_ARGS=(
    --label-key reward_model
    --apply-chat-template
    --rollout-shuffle
-   --rm-type zero2one
+   --rm-type math
    --start-rollout-id 0
    --num-rollout 100
    --rollout-batch-size 16
@@ -59,7 +59,7 @@ ROLLOUT_ARGS=(
 
 test_files=$DATASET_PATH/aime_2025.parquet
 EVAL_ARGS=(
-   --eval-interval 10
+   --eval-interval 5
    --eval-prompt-data $test_files
    --n-samples-per-eval-prompt 8
    --eval-max-response-len 4096
@@ -145,7 +145,7 @@ SGLANG_ARGS=(
 
    --sglang-server-concurrency $MAX_CONCURRENT_ROLLOUTS
    --sglang-max-running-requests $MAX_CONCURRENT_ROLLOUTS
-   --skip-eval-before-train # Skip evaluation at step 0.
+   # --skip-eval-before-train # Skip evaluation at step 0.
 )
 
 MISC_ARGS=(

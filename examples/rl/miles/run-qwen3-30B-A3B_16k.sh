@@ -55,7 +55,7 @@ ROLLOUT_ARGS=(
    --label-key reward_model
    --apply-chat-template
    --rollout-shuffle
-   --rm-type zero2one
+   --rm-type math
    --start-rollout-id 0
    --num-rollout 300
    --rollout-batch-size 64

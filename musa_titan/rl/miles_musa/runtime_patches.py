@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import os
+from functools import wraps
 from urllib.parse import urlsplit, urlunsplit
 
 from musa_titan.utils.patching import replace_attr
@@ -134,6 +135,35 @@ def _patch_sglang_engine_module(module) -> None:
         commit_branch_verified=True,
     )
     module._miles_musa_patched = True
+
+
+def _patch_megatron_arguments_module(module) -> None:
+    """Expose the legacy Miles Gloo flag after Megatron validates its value."""
+    original = module.validate_args
+    if getattr(original, "_miles_musa_patched", False):
+        return
+
+    @wraps(original)
+    def validate_args(args, *positional, **kwargs):
+        result = original(args, *positional, **kwargs)
+        # Validation can change use_gloo_process_groups (e.g. fake groups).
+        # Preserve old Megatron's field and explicit False values.
+        if not hasattr(args, "enable_gloo_process_groups") and hasattr(args, "use_gloo_process_groups"):
+            args.enable_gloo_process_groups = args.use_gloo_process_groups
+        return result
+
+    validate_args._miles_musa_patched = True
+    replace_attr(
+        module,
+        "validate_args",
+        validate_args,
+        reason="Expose Megatron's validated use_gloo_process_groups value to Miles' legacy Gloo flag consumers.",
+        authored=_MILES_AUTHORED,
+        commits={"miles": _MILES_COMMIT},
+        upstream_path="miles.backends.megatron_utils.arguments.validate_args",
+        current_path="musa_titan/rl/miles_musa/runtime_patches.py",
+        commit_branch_verified=True,
+    )
 
 
 def _patch_hf_arguments_module(module) -> None:

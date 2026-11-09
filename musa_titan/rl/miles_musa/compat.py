@@ -7,12 +7,46 @@ from musa_titan.utils.patching import replace_import_source
 
 
 _REWRITE_IMPORT_NAMES = {
+    "miles.backends.megatron_utils.arguments": {"megatron.training.tokenizer"},
     "miles.backends.megatron_utils.model": {"megatron.core.optimizer.muon"},
     "miles.backends.megatron_utils.actor": {"sglang.srt.distributed.parallel_state"},
 }
 
 def _rewrite_miles_source(fullname: str, source: str) -> str:
     """Apply minimal source fallbacks for supported Miles import failures."""
+    if fullname == "miles.backends.megatron_utils.arguments":
+        # Current Megatron removed the legacy training.tokenizer package and
+        # exposes the public padding helper under core.tokenizers. Keep the
+        # legacy fallback for older Megatron checkouts.
+        return replace_import_source(
+            source=source,
+            original_source=(
+                "from megatron.training.tokenizer.tokenizer import "
+                "_vocab_size_with_padding\n"
+            ),
+            replacement_source=(
+                "try:\n"
+                "    from megatron.core.tokenizers.utils.build_tokenizer import "
+                "vocab_size_with_padding as _vocab_size_with_padding\n"
+                "except ModuleNotFoundError as exc:\n"
+                "    if exc.name != 'megatron.core.tokenizers':\n"
+                "        raise\n"
+                "    from megatron.training.tokenizer.tokenizer import "
+                "_vocab_size_with_padding\n"
+            ),
+            reason=(
+                "Use Megatron's public tokenizer padding API while retaining "
+                "the legacy tokenizer fallback."
+            ),
+            authored=_MILES_AUTHORED,
+            commits={"miles": _MILES_COMMIT},
+            upstream_path=(
+                "miles.backends.megatron_utils.arguments:"
+                "megatron.training.tokenizer.tokenizer._vocab_size_with_padding"
+            ),
+            current_path="musa_titan/rl/miles_musa/compat.py",
+            commit_branch_verified=True,
+        )
     if fullname == "miles.backends.megatron_utils.model":
         # Keep Muon optional when the supported Megatron checkout does not ship it.
         source = replace_import_source(

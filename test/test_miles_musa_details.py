@@ -223,6 +223,72 @@ def test_miles_runtime_replacements_use_official_targets(adapter):
     assert observed == [1e-6]
 
 
+@pytest.mark.parametrize(
+    ("fields", "expected"),
+    [
+        ({"use_gloo_process_groups": True}, True),
+        ({"use_gloo_process_groups": False}, False),
+        ({"enable_gloo_process_groups": False}, False),
+        ({"enable_gloo_process_groups": False, "use_gloo_process_groups": True}, False),
+        ({}, None),
+    ],
+)
+def test_gloo_flag_alias_preserves_existing_values(adapter, fields, expected):
+    from musa_titan.rl.miles_musa.runtime_patches import _patch_megatron_arguments_module
+
+    args = SimpleNamespace(**fields)
+    calls = []
+    result = object()
+
+    def original(namespace, defaults=None):
+        calls.append((namespace, defaults))
+        return result
+
+    module = SimpleNamespace(validate_args=original)
+    _patch_megatron_arguments_module(module)
+    wrapped = module.validate_args
+    _patch_megatron_arguments_module(module)
+    assert module.validate_args is wrapped
+    assert wrapped.__wrapped__ is original
+    assert module.validate_args(args, defaults={"test": 1}) is result
+    assert calls == [(args, {"test": 1})]
+    assert getattr(args, "enable_gloo_process_groups", None) is expected
+    assert hasattr(args, "enable_gloo_process_groups") == bool(fields)
+
+
+def test_gloo_flag_alias_uses_value_after_validation(adapter):
+    from musa_titan.rl.miles_musa.runtime_patches import _patch_megatron_arguments_module
+
+    args = SimpleNamespace(use_gloo_process_groups=True)
+
+    def original(namespace):
+        assert not hasattr(namespace, "enable_gloo_process_groups")
+        namespace.use_gloo_process_groups = False
+        return namespace
+
+    module = SimpleNamespace(validate_args=original)
+    _patch_megatron_arguments_module(module)
+    assert module.validate_args(args) is args
+    assert args.enable_gloo_process_groups is False
+
+
+def test_gloo_flag_alias_does_not_hide_validation_failure(adapter):
+    from musa_titan.rl.miles_musa.runtime_patches import _patch_megatron_arguments_module
+
+    args = SimpleNamespace(use_gloo_process_groups=True)
+    error = ValueError("invalid config")
+
+    def original(namespace):
+        raise error
+
+    module = SimpleNamespace(validate_args=original)
+    _patch_megatron_arguments_module(module)
+    with pytest.raises(ValueError) as raised:
+        module.validate_args(args)
+    assert raised.value is error
+    assert not hasattr(args, "enable_gloo_process_groups")
+
+
 def test_intra_group_address_uses_sglang_engine_host_for_p2p(adapter, monkeypatch):
     common = ModuleType("sglang.srt.utils.common")
     utils = ModuleType("sglang.srt.utils")
@@ -260,7 +326,7 @@ def test_intra_group_address_uses_sglang_engine_host_for_p2p(adapter, monkeypatc
     assert calls[-1]["init_method"] == "tcp://10.20.35.10:23000"
 
 
-def test_source_rewrite_keeps_only_current_model_and_actor_fallbacks(adapter):
+def test_source_rewrite_keeps_model_and_actor_fallbacks(adapter):
     from musa_titan.rl.miles_musa.compat import _rewrite_miles_source
 
     source = "from megatron.core.optimizer.muon import get_megatron_muon_optimizer\n"
@@ -277,6 +343,61 @@ def test_source_rewrite_rejects_stale_import_shape(adapter):
 
     with pytest.raises(ValueError, match="Expected 1 occurrence"):
         _rewrite_miles_source("miles.backends.megatron_utils.model", "# already updated\n")
+
+
+@pytest.mark.parametrize("legacy_available", [True, False])
+def test_tokenizer_loader_uses_legacy_or_public_padding_api(adapter, tmp_path, monkeypatch, legacy_available):
+    from importlib.machinery import SourceFileLoader
+    from musa_titan.rl.miles_musa.import_hooks import _MilesMusaLoader
+
+    for name in (
+        "megatron", "megatron.training", "megatron.core", "megatron.core.tokenizers",
+        "megatron.core.tokenizers.utils",
+    ):
+        package = ModuleType(name)
+        package.__path__ = []
+        monkeypatch.setitem(sys.modules, name, package)
+    for name in ("megatron.training.tokenizer", "megatron.training.tokenizer.tokenizer"):
+        monkeypatch.delitem(sys.modules, name, raising=False)
+
+    padding = lambda size, args: size + 1
+    public = ModuleType("megatron.core.tokenizers.utils.build_tokenizer")
+    public.vocab_size_with_padding = padding
+    monkeypatch.setitem(sys.modules, public.__name__, public)
+    if legacy_available:
+        legacy = ModuleType("megatron.training.tokenizer.tokenizer")
+        legacy._vocab_size_with_padding = padding
+        monkeypatch.setitem(sys.modules, legacy.__name__, legacy)
+
+    name = "miles.backends.megatron_utils.arguments"
+    source_file = tmp_path / "arguments.py"
+    source_file.write_text(
+        "from megatron.training.tokenizer.tokenizer import _vocab_size_with_padding\n"
+        "def validate_args(args):\n    return args\n"
+    )
+    module = ModuleType(name)
+    _MilesMusaLoader(SourceFileLoader(name, str(source_file)), name, str(source_file)).exec_module(module)
+    assert module._vocab_size_with_padding is padding
+    assert module._vocab_size_with_padding(100, None) == 101
+    assert module._miles_musa_loaded
+    args = SimpleNamespace(use_gloo_process_groups=False)
+    assert module.validate_args(args) is args
+    assert args.enable_gloo_process_groups is False
+
+
+def test_tokenizer_loader_propagates_unrelated_import_error(adapter, tmp_path):
+    from musa_titan.rl.miles_musa.import_hooks import _MilesMusaLoader
+
+    error = ModuleNotFoundError("missing tokenizer dependency", name="sentencepiece")
+
+    class BrokenLoader:
+        def exec_module(self, module):
+            raise error
+
+    name = "miles.backends.megatron_utils.arguments"
+    with pytest.raises(ModuleNotFoundError) as raised:
+        _MilesMusaLoader(BrokenLoader(), name, str(tmp_path / "absent.py")).exec_module(ModuleType(name))
+    assert raised.value is error
 
 
 def test_import_loader_rewrites_muon_failure_and_propagates_unrelated_failure(adapter, tmp_path, monkeypatch):
