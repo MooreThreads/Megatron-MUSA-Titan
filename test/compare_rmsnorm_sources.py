@@ -78,6 +78,10 @@ def main():
                         r = torch.randn(rows, width * stride, device="musa", dtype=dtype)[:, ::stride]
                         w = torch.empty(width, device="musa", dtype=dtype).uniform_(-1.5, 1.5)
                         actual = rms_norm_batch_invariant(x, w)
+                        with torch.enable_grad():
+                            training_output = rms_norm_batch_invariant(x.detach().requires_grad_(), w)
+                        compare(training_output.detach(), actual)
+                        comparisons += 1
                         for name in ("lab_rms", "sglang_rms"):
                             compare(actual, modules[name].rms_norm_batch_invariant(x, w))
                             comparisons += 1

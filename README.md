@@ -139,7 +139,7 @@ Recipes are starting points for cluster-specific configuration, not one-command 
 
 Standalone batch-invariant RMSNorm and fused residual-add RMSNorm
 operators are available in [`musa_titan.kernels`](musa_titan/kernels/README.md).
-They use Triton forward kernels; fused add RMSNorm supports native MUSA
+They use Triton forward kernels; both operators support native MUSA
 backward. They do not automatically replace training normalization.
 
 ## Contributing

@@ -1,4 +1,4 @@
-"""MUSA forward exactness, graph and fused native-backward tests."""
+"""MUSA forward exactness, graph and native-backward tests for both operators."""
 
 import pytest
 import torch
@@ -153,12 +153,98 @@ def test_single_gradient_input(grad_input):
     (y.float().square().mean() + added.float().square().mean()).backward()
     assert leaf.grad is not None and torch.isfinite(leaf.grad).all()
     assert leaf.grad.abs().sum() > 0
-    if grad_input != "residual":
-        with pytest.raises(RuntimeError, match="does not implement autograd"):
-            norm(x, w)
     with torch.no_grad():
         assert not norm(x, w).requires_grad
         assert all(not t.requires_grad for t in fused_norm(x, r, w))
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+@pytest.mark.parametrize("shape", ((2048,), (3, 2048), (2, 3, 1025), (0, 2048)))
+@pytest.mark.parametrize("grad_input", ("input", "weight", "both"))
+def test_rmsnorm_backward_against_fp64_autograd(dtype, shape, grad_input):
+    x, _, w = inputs(shape, dtype)
+    x = x.repeat_interleave(2, dim=-1)[..., ::2].detach()
+    w = w.repeat_interleave(2)[::2].detach()
+    x.requires_grad_(grad_input != "weight")
+    w.requires_grad_(grad_input != "input")
+    before = [t.detach().clone() for t in (x, w)]
+    eps = 1e-5
+    with torch.no_grad():
+        expected_forward = norm(x, w, eps)
+    y = norm(x, w, eps)
+    assert_bytes(y, expected_forward)
+    dy = torch.randn_like(y)
+    y.backward(dy)
+
+    xr = x.detach().cpu().double().requires_grad_(x.requires_grad)
+    wr = w.detach().cpu().double().requires_grad_(w.requires_grad)
+    reference = xr / torch.sqrt(xr.square().mean(-1, keepdim=True) + eps) * wr
+    reference.backward(dy.cpu().double())
+    for actual, expected, needed in ((x.grad, xr.grad, x.requires_grad), (w.grad, wr.grad, w.requires_grad)):
+        if not needed:
+            assert actual is None
+            continue
+        assert actual is not None and torch.isfinite(actual).all()
+        tolerance = {torch.bfloat16: .01, torch.float16: .001, torch.float32: 5e-6}[dtype]
+        torch.testing.assert_close(actual.cpu().double(), expected, rtol=tolerance, atol=tolerance)
+        if expected.numel() and expected.abs().sum() > 0:
+            assert actual.abs().sum() > 0
+    for actual, saved in zip((x, w), before):
+        assert_bytes(actual, saved)
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+def test_rmsnorm_reuses_native_backward_and_saved_rstd(monkeypatch, dtype):
+    x, _, w = inputs((3, 2048), dtype)
+    x.requires_grad_()
+    w.requires_grad_()
+    y = norm(x, w)
+    saved_input, saved_rstd, saved_weight = y.grad_fn.saved_tensors
+    assert saved_input is x and saved_weight is w
+    assert saved_rstd.shape == (3,) and saved_rstd.dtype == torch.float32
+    native = torch.ops.aten._fused_rmsnorm_backward
+    calls = []
+
+    def checked_native(grad, invvar, input, shape, eps, weight):
+        assert input.dtype == grad.dtype == weight.dtype == dtype
+        assert invvar.data_ptr() == saved_rstd.data_ptr()
+        assert_bytes(input, x.detach())
+        calls.append(True)
+        return native(grad, invvar, input, shape, eps, weight)
+
+    monkeypatch.setattr(torch.ops.aten, "_fused_rmsnorm_backward", checked_native)
+    dy = torch.randn_like(y)
+    expected_dx, expected_dw = native(dy, saved_rstd, x.detach(), [2048], 1e-6, w.detach())
+    y.backward(dy)
+    assert calls == [True]
+    assert_bytes(x.grad, expected_dx)
+    assert_bytes(w.grad, expected_dw)
+
+
+def test_rmsnorm_two_optimizer_updates():
+    x, _, w = inputs((7, 2048), torch.float32)
+    x.requires_grad_()
+    w.requires_grad_()
+    optimizer = torch.optim.SGD([w], lr=.01)
+    for _ in range(2):
+        optimizer.zero_grad(set_to_none=True)
+        x.grad = None
+        before = w.detach().clone()
+        norm(x, w).square().mean().backward()
+        assert torch.isfinite(x.grad).all() and x.grad.abs().sum() > 0
+        assert torch.isfinite(w.grad).all() and w.grad.abs().sum() > 0
+        optimizer.step()
+        assert not torch.equal(w, before)
+
+
+@pytest.mark.parametrize("modified", ("input", "weight"))
+def test_rmsnorm_detects_modified_saved_tensor(modified):
+    x, _, w = inputs((2, 2048), torch.float32)
+    y = norm(x.requires_grad_(), w.requires_grad_())
+    with torch.no_grad():
+        (x if modified == "input" else w).add_(1)
+    with pytest.raises(RuntimeError, match="modified by an inplace operation"):
+        y.sum().backward()
 
 
 @pytest.mark.parametrize("dtype", DTYPES)

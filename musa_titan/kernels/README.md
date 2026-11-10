@@ -28,8 +28,9 @@ preserving the operator-lab implementation's arithmetic.
 - Outputs use new allocations. No input or residual is modified.
 - Empty leading dimensions are supported.
 - Epsilon must be finite and positive.
-- Ordinary RMSNorm remains forward-only and rejects gradient-enabled inputs
-  unless called under `torch.no_grad()` or inference mode.
+- Ordinary RMSNorm supports first-order MUSA gradients for input and weight.
+  It returns only normalized output; forward rstd is cached internally only
+  when gradients are needed. Do not modify saved input or weight before backward.
 - Fused add RMSNorm supports first-order MUSA gradients for input, residual
   and weight. `normalized` and `residual_sum` are differentiable; `rstd` and
   `residual_sum_fp32` are non-differentiable caches. Do not mutate these caches
@@ -60,9 +61,21 @@ The fused operator preserves operator-lab's numerical contract. This does not
 claim bitwise equality with SGLang's native in-place `sgl_kernel.fused_add_rmsnorm`,
 which has a different reduction implementation and API.
 
-## Fused backward
+## Native backward
 
-When any input requires gradients, a `torch.autograd.Function` saves the FP32
+Ordinary RMSNorm saves input, weight and the actual Triton forward rstd, then
+calls `torch.ops.aten._fused_rmsnorm_backward` with the original input/weight
+dtype, as in Megatron/MT-TE. It does not recompute forward statistics.
+Noncontiguous operands are flattened and made contiguous for the native call;
+input gradients are reshaped back to the original input dimensions. Empty
+batches return empty input gradients and zero weight gradients.
+
+```python
+# x or weight must have requires_grad=True.
+rms_norm_batch_invariant(x, weight).float().square().mean().backward()
+```
+
+For fused add RMSNorm, a `torch.autograd.Function` saves the FP32
 sum, the actual forward rstd and weight. Backward calls
 `torch.ops.aten._fused_rmsnorm_backward` with FP32 operands. This is the native
 operator called by MT-TransformerEngine's `rmsnorm_bwd` for Megatron, whose
@@ -100,8 +113,9 @@ identify the exact inputs:
 The ordinary RMSNorm source records its adaptation from
 [vLLM batch_invariant.py](https://github.com/vllm-project/vllm/blob/66a168a197ba214a5b70a74fa2e713c9eeb3251a/vllm/model_executor/layers/batch_invariant.py#L649).
 It uses the same algorithm as SGLang's `sglang.srt.batch_invariant_ops`.
-The port adds imports, input validation, empty-batch handling and explicit
-four-warp launch configuration to the extracted ordinary RMSNorm source.
+The port adds imports, input validation, empty-batch handling, explicit
+four-warp launch configuration and an optional rstd store for native backward
+to the extracted ordinary RMSNorm source.
 
 ## Validation
 
@@ -122,14 +136,19 @@ PYTHONPATH=. python3 test/compare_rmsnorm_sources.py \
 
 This comparison records source hashes and checks original-dtype bytes for
 ordinary outputs against both source implementations and all four fused
-outputs against operator-lab. SGLang's RMSNorm definitions are loaded directly
+outputs against operator-lab. It also checks that ordinary RMSNorm's
+autograd-enabled forward matches its inference output byte-for-byte.
+SGLang's RMSNorm definitions are loaded directly
 from the supplied source, without importing its unrelated serving stack.
 
 Tests cover FP64-reference correctness, original-dtype byte invariance under
 batch/position/layout changes, tail widths, non-unit weights, cancellation,
 input immutability, independent output storage, strided weights, empty batches,
-graph replay with changed inputs and explicit rejection of ordinary RMSNorm
-autograd. Fused backward checks include independent FP64 autograd references,
+graph replay with changed inputs. Ordinary backward checks include independent
+FP64 autograd references, input-only/weight-only/joint gradients, strided and
+empty inputs, byte-exact comparison with the native backward given the same
+saved rstd, saved-tensor mutation detection and two effective optimizer updates.
+Fused backward checks include independent FP64 autograd references,
 all three input gradients, normalized/residual/combined losses, strided and
 aliased inputs, empty batches, native use of the actual forward caches,
 cache mutation detection, and two effective optimizer updates.
