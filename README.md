@@ -137,6 +137,10 @@ bash run_deepseekv3.sh
 
 Recipes are starting points for cluster-specific configuration, not one-command reproductions of the reported 10,000-GPU benchmark. See [RL examples](examples/rl) for the current RL recipe structure.
 
+Standalone batch-invariant RMSNorm and fused residual-add RMSNorm forward
+operators are available in [`musa_titan.kernels`](musa_titan/kernels/README.md).
+They use Triton and do not automatically replace training normalization.
+
 ## Contributing
 
 Welcome any form of contribution of code, model implementation and document!
