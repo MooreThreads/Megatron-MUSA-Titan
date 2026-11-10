@@ -1,4 +1,4 @@
-"""Compare the port byte-for-byte with explicit operator-lab and SGLang sources.
+"""Compare RMSNorm byte-for-byte with explicit SGLang and optional references.
 
 Only the three RMSNorm definitions are extracted from the SGLang source. This
 avoids importing unrelated serving dependencies and never calls installed
@@ -54,20 +54,21 @@ def compare(actual, expected):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--operator-lab", type=Path, required=True, help="operator-lab/rmsnorm directory")
+    parser.add_argument("--rmsnorm-reference", type=Path, help="optional independent RMSNorm source")
+    parser.add_argument("--fused-reference", type=Path, help="optional four-output fused source")
     parser.add_argument("--sglang-source", type=Path, required=True, help="SGLang batch_invariant_ops.py")
     args = parser.parse_args()
-    sources = {
-        "lab_rms": args.operator_lab / "rmsnorm_batch_invariant.py",
-        "lab_fused": args.operator_lab / "fused_add_rmsnorm_batch_invariant.py",
-        "sglang_rms": args.sglang_source,
-    }
+    sources = {"sglang_rms": args.sglang_source}
+    if args.rmsnorm_reference is not None:
+        sources["reference_rms"] = args.rmsnorm_reference
+    if args.fused_reference is not None:
+        sources["reference_fused"] = args.fused_reference
     torch.set_num_threads(1)
     torch.manual_seed(2231)
     cases = comparisons = 0
     with tempfile.TemporaryDirectory() as directory, torch.no_grad():
         modules = {
-            name: load_source(name, path, Path(directory), extract=name != "lab_fused")
+            name: load_source(name, path, Path(directory), extract=name != "reference_fused")
             for name, path in sources.items()
         }
         for dtype in (torch.bfloat16, torch.float16, torch.float32):
@@ -82,15 +83,18 @@ def main():
                             training_output = rms_norm_batch_invariant(x.detach().requires_grad_(), w)
                         compare(training_output.detach(), actual)
                         comparisons += 1
-                        for name in ("lab_rms", "sglang_rms"):
+                        for name in ("reference_rms", "sglang_rms"):
+                            if name not in modules:
+                                continue
                             compare(actual, modules[name].rms_norm_batch_invariant(x, w))
                             comparisons += 1
-                        actual_fused = fused_add_rmsnorm_batch_invariant(x, r, w)
-                        reference_fused = modules["lab_fused"].fused_add_rmsnorm_batch_invariant(x, r, w)
-                        assert len(actual_fused) == len(reference_fused) == 4
-                        for a, b in zip(actual_fused, reference_fused):
-                            compare(a, b)
-                            comparisons += 1
+                        if "reference_fused" in modules:
+                            actual_fused = fused_add_rmsnorm_batch_invariant(x, r, w)
+                            reference_fused = modules["reference_fused"].fused_add_rmsnorm_batch_invariant(x, r, w)
+                            assert len(actual_fused) == len(reference_fused) == 4
+                            for a, b in zip(actual_fused, reference_fused):
+                                compare(a, b)
+                                comparisons += 1
                         cases += 1
     print(json.dumps({
         "cases": cases, "tensor_comparisons": comparisons,

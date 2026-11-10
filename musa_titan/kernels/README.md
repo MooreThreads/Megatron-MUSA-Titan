@@ -17,8 +17,8 @@ with torch.no_grad():
 
 Both implementations use Triton, one program per row, 1024-column chunks and
 four warps. Batch size does not select a different reduction algorithm.
-The fused implementation uses one kernel and disables floating-point fusion,
-preserving the operator-lab implementation's arithmetic.
+The fused implementation uses one kernel and disables floating-point fusion
+to preserve the specified arithmetic.
 
 ## Contract
 
@@ -57,8 +57,8 @@ the statistics and normalized output. It additionally returns
 input element to forward output storage. It is not equivalent to first rounding `input + residual`
 to BF16/FP16 and then calling ordinary RMSNorm.
 
-The fused operator preserves operator-lab's numerical contract. This does not
-claim bitwise equality with SGLang's native in-place `sgl_kernel.fused_add_rmsnorm`,
+This numerical contract does not claim bitwise equality with SGLang's native
+in-place `sgl_kernel.fused_add_rmsnorm`,
 which has a different reduction implementation and API.
 
 ## Native backward
@@ -98,24 +98,13 @@ Forward remains batch invariant. Native backward reductions are not claimed
 to be batch invariant or bitwise identical to SGLang backward. This does not
 install a Megatron layer adapter or establish end-to-end RL alignment.
 
-## Source provenance
+## Upstream references
 
-Ported from `operator-lab/rmsnorm` at checkout
-`d25080e4631494bf7a2abea458b73f33a4fec3ba`, including the current uncommitted
-fused-operator changes adding the FP32 residual cache. The source file hashes
-identify the exact inputs:
-
-| Source | SHA256 |
-| --- | --- |
-| `rmsnorm_batch_invariant.py` | `08de537893d8cce96b84488f2454b9f23b4f920d7a6005b647386d940730ccb6` |
-| `fused_add_rmsnorm_batch_invariant.py` | `32c2a5d0a6e2a814a347f92971aad4a8103535664b0152b5d36eba8c98b64ba8` |
-
-The ordinary RMSNorm source records its adaptation from
+The ordinary RMSNorm implementation is adapted from
 [vLLM batch_invariant.py](https://github.com/vllm-project/vllm/blob/66a168a197ba214a5b70a74fa2e713c9eeb3251a/vllm/model_executor/layers/batch_invariant.py#L649).
 It uses the same algorithm as SGLang's `sglang.srt.batch_invariant_ops`.
-The port adds imports, input validation, empty-batch handling, explicit
-four-warp launch configuration and an optional rstd store for native backward
-to the extracted ordinary RMSNorm source.
+Titan adds input validation, empty-batch handling, explicit four-warp launch
+configuration and an optional rstd store for native backward.
 
 ## Validation
 
@@ -123,21 +112,20 @@ From the repository root on a MUSA host:
 
 ```bash
 PYTHONPATH=. python3 -m pytest test/test_rmsnorm_kernels.py -q
-PYTHONPATH=. python3 test/benchmark_rmsnorm_kernels.py
 ```
 
 To check the migration against explicit source checkouts:
 
 ```bash
 PYTHONPATH=. python3 test/compare_rmsnorm_sources.py \
-  --operator-lab /path/to/operator-lab/rmsnorm \
   --sglang-source /path/to/sglang/python/sglang/srt/batch_invariant_ops/batch_invariant_ops.py
 ```
 
 This comparison records source hashes and checks original-dtype bytes for
-ordinary outputs against both source implementations and all four fused
-outputs against operator-lab. It also checks that ordinary RMSNorm's
-autograd-enabled forward matches its inference output byte-for-byte.
+ordinary outputs against SGLang. Optional `--rmsnorm-reference` and
+`--fused-reference` arguments accept additional standalone source files.
+It also checks that ordinary RMSNorm's autograd-enabled forward matches its
+inference output byte-for-byte.
 SGLang's RMSNorm definitions are loaded directly
 from the supplied source, without importing its unrelated serving stack.
 
@@ -153,8 +141,73 @@ all three input gradients, normalized/residual/combined losses, strided and
 aliased inputs, empty batches, native use of the actual forward caches,
 cache mutation detection, and two effective optimizer updates.
 
-The benchmark reports forward graph-replay event intervals against FP32
-PyTorch reference expressions on the same device. These include replay
-overhead and are not isolated kernel timings. The forward benchmark includes
-the fourth FP32 cache output. It does not measure backward,
-end-to-end training or the native SGLang fused kernel.
+## Benchmark
+
+```bash
+PYTHONPATH=.:/path/to/Megatron-LM python3 test/benchmark_rmsnorm_kernels.py \
+  --output logs/rmsnorm-native-benchmark
+```
+
+The default matrix uses BF16, H=2048 and rows 16, 128, 4096 and 131072
+(32 x 4096). Both operators have forward and combined forward+backward
+measurements. Forward runs with gradients enabled, including backward-cache
+writes. The combined path includes the entire forward and gradient calculation;
+input preparation and warmup/compilation are outside timing.
+
+The baseline uses MT-TE's native MUSA RMSNorm ATen operators. For residual-add,
+it calls the imported Megatron `bias_dropout_add_fused_train` with no bias and
+zero dropout, followed by native RMSNorm. Megatron rounds its added residual
+to BF16 before normalization; Titan preserves the FP32 sum until normalization.
+These paths intentionally have different rounding semantics.
+
+Reported microseconds are the median of three round means, each summing
+GPU profiler kernel durations over 50 calls and dividing by 50. This includes
+all GPU kernels in the selected path, but excludes CPU launch gaps and does
+not represent end-to-end training latency. Traces, source hashes and per-round
+samples are saved in the selected output directory.
+
+Measured on one MTT S5000 with PyTorch 2.7.1, torch_musa 2.7.1+5f0ecd1 and
+Triton 3.2.0. Ratios below 1 mean Titan is slower. These are operator-level
+GPU execution times, not a full-model forward or training-step measurement.
+
+### RMSNorm forward
+
+| Rows (H=2048) | Titan (us) | Native Megatron (us) | Megatron / Titan |
+| --- | ---: | ---: | ---: |
+| 16 | 6.11 | 8.72 | 1.43x |
+| 128 | 6.25 | 8.68 | 1.39x |
+| 4096 | 29.05 | 29.65 | 1.02x |
+| 32 x 4096 = 131072 | 804.50 | 919.23 | 1.14x |
+
+### RMSNorm forward + backward
+
+| Rows (H=2048) | Titan (us) | Native Megatron (us) | Megatron / Titan |
+| --- | ---: | ---: | ---: |
+| 16 | 22.02 | 25.18 | 1.14x |
+| 128 | 35.66 | 38.67 | 1.08x |
+| 4096 | 110.72 | 109.25 | 0.99x |
+| 32 x 4096 = 131072 | 3252.83 | 3349.66 | 1.03x |
+
+### Fused add RMSNorm forward
+
+| Rows (H=2048) | Titan (us) | Native Megatron (us) | Megatron / Titan |
+| --- | ---: | ---: | ---: |
+| 16 | 6.11 | 11.02 | 1.80x |
+| 128 | 6.69 | 12.14 | 1.81x |
+| 4096 | 84.73 | 68.90 | 0.81x |
+| 32 x 4096 = 131072 | 2891.34 | 2075.93 | 0.72x |
+
+### Fused add RMSNorm forward + backward
+
+| Rows (H=2048) | Titan (us) | Native Megatron (us) | Megatron / Titan |
+| --- | ---: | ---: | ---: |
+| 16 | 41.70 | 31.85 | 0.76x |
+| 128 | 60.13 | 46.45 | 0.77x |
+| 4096 | 422.44 | 198.95 | 0.47x |
+| 32 x 4096 = 131072 | 14255.88 | 5652.24 | 0.40x |
+
+Ordinary forward is faster at all four tested sizes; combined ordinary
+forward+backward is close to parity at 4096 rows. Fused forward is faster at
+16/128 rows and slower at the larger sizes. Fused forward+backward is slower
+at all four sizes; the measurement includes the FP32 cache, casts and FP32
+native backward required by its unrounded-sum contract.

@@ -1,4 +1,4 @@
-"""Out-of-place fused add + RMSNorm ported from operator-lab/rmsnorm.
+"""Out-of-place Triton fused add + RMSNorm with native MUSA backward.
 
 See README.md beside this module for source revisions and numerical contracts.
 """
