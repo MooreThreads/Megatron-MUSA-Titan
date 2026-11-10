@@ -24,7 +24,7 @@ def reference(x, w, residual=None):
         s = s + residual.float()
     rstd = 1 / torch.sqrt(s.square().mean(-1) + 1e-6)
     y = (s * rstd.unsqueeze(-1) * w.float()).to(x.dtype)
-    return y if residual is None else (y, s.to(x.dtype), rstd)
+    return y if residual is None else (y, s.to(x.dtype), rstd, s)
 
 
 def measure(fn, repeats):

@@ -81,10 +81,10 @@ def main():
                         for name in ("lab_rms", "sglang_rms"):
                             compare(actual, modules[name].rms_norm_batch_invariant(x, w))
                             comparisons += 1
-                        for a, b in zip(
-                            fused_add_rmsnorm_batch_invariant(x, r, w),
-                            modules["lab_fused"].fused_add_rmsnorm_batch_invariant(x, r, w),
-                        ):
+                        actual_fused = fused_add_rmsnorm_batch_invariant(x, r, w)
+                        reference_fused = modules["lab_fused"].fused_add_rmsnorm_batch_invariant(x, r, w)
+                        assert len(actual_fused) == len(reference_fused) == 4
+                        for a, b in zip(actual_fused, reference_fused):
                             compare(a, b)
                             comparisons += 1
                         cases += 1

@@ -1,4 +1,4 @@
-"""MUSA correctness, byte invariance and graph tests for the forward kernels."""
+"""MUSA forward exactness, graph and fused native-backward tests."""
 
 import pytest
 import torch
@@ -43,13 +43,14 @@ def test_reference_and_no_mutation(dtype, width):
     before = [t.clone() for t in (x, r, w)]
     for eps in (1e-6, 1e-5):
         plain = norm(x, w, eps)
-        y, added, rstd = fused_norm(x, r, w, eps)
+        y, added, rstd, sum_fp32 = fused_norm(x, r, w, eps)
         assert plain.shape == y.shape == added.shape == x.shape
         assert plain.dtype == y.dtype == added.dtype == dtype
         assert rstd.shape == x.shape[:-1]
         assert rstd.dtype == torch.float32
         assert rstd.device == x.device
-        storage = [t.untyped_storage().data_ptr() for t in (x, r, w, plain, y, added, rstd)]
+        assert sum_fp32.shape == x.shape and sum_fp32.dtype == torch.float32
+        storage = [t.untyped_storage().data_ptr() for t in (x, r, w, plain, y, added, rstd, sum_fp32)]
         assert len(set(storage)) == len(storage)
         # FP64 reference checks mathematical correctness independently of the
         # GPU reduction tree; exactness is tested separately below.
@@ -60,6 +61,7 @@ def test_reference_and_no_mutation(dtype, width):
             assert torch.isfinite(actual).all()
             torch.testing.assert_close(actual.cpu().double(), reference, rtol=tol, atol=tol)
         s32 = x.cpu().float() + r.cpu().float()
+        assert_bytes(sum_fp32.cpu(), s32)
         assert_bytes(added.cpu(), s32.to(dtype))
         torch.testing.assert_close(
             rstd.cpu(), 1 / torch.sqrt(s32.square().mean(-1) + eps),
@@ -99,10 +101,11 @@ def test_shapes_aliased_inputs_and_strided_weight(shape):
     w = torch.randn(4096, device=x.device, dtype=x.dtype)[::2]
     expected = norm(x.contiguous(), w.contiguous())
     assert_bytes(norm(x, w), expected)
-    y, added, rstd = fused_norm(x, x, w)
+    y, added, rstd, sum_fp32 = fused_norm(x, x, w)
     assert y.shape == added.shape == x.shape
     assert rstd.shape == x.shape[:-1]
     assert_bytes(added, (x.float() * 2).to(x.dtype))
+    assert_bytes(sum_fp32, x.float() * 2)
 
 
 def test_graph_replay_with_changed_inputs():
@@ -135,23 +138,127 @@ def test_fused_uses_unrounded_fp32_sum():
     r = torch.zeros_like(x)
     r[:, 0] = 1 / 256
     w = torch.full((2048,), 1.5, device=x.device, dtype=x.dtype)
-    y, added, _ = fused_norm(x, r, w)
+    y, added, _, sum_fp32 = fused_norm(x, r, w)
     assert_bytes(added, x)
+    assert_bytes(sum_fp32, x.float() + r.float())
     assert not torch.equal(y, norm(added, w))
 
 
 @pytest.mark.parametrize("grad_input", ("input", "residual", "weight"))
-def test_no_silent_autograd(grad_input):
+def test_single_gradient_input(grad_input):
     x, r, w = inputs((2, 2048), torch.bfloat16)
-    {"input": x, "residual": r, "weight": w}[grad_input].requires_grad_()
-    with pytest.raises(RuntimeError, match="does not implement autograd"):
-        fused_norm(x, r, w)
+    leaf = {"input": x, "residual": r, "weight": w}[grad_input].requires_grad_()
+    y, added, rstd, sum_fp32 = fused_norm(x, r, w)
+    assert not rstd.requires_grad and not sum_fp32.requires_grad
+    (y.float().square().mean() + added.float().square().mean()).backward()
+    assert leaf.grad is not None and torch.isfinite(leaf.grad).all()
+    assert leaf.grad.abs().sum() > 0
     if grad_input != "residual":
         with pytest.raises(RuntimeError, match="does not implement autograd"):
             norm(x, w)
     with torch.no_grad():
         assert not norm(x, w).requires_grad
         assert all(not t.requires_grad for t in fused_norm(x, r, w))
+
+
+@pytest.mark.parametrize("dtype", DTYPES)
+@pytest.mark.parametrize("shape", ((2048,), (3, 2048), (2, 3, 1025), (0, 2048)))
+@pytest.mark.parametrize("branch", ("normalized", "residual", "both"))
+def test_fused_backward_against_fp64_autograd(dtype, shape, branch):
+    x, r, w = inputs(shape, dtype)
+    # Exercise strided leaf inputs and weights in the actual backward path.
+    x = x.repeat_interleave(2, dim=-1)[..., ::2].detach().requires_grad_()
+    r = r.repeat_interleave(2, dim=-1)[..., ::2].detach().requires_grad_()
+    w = w.repeat_interleave(2)[::2].detach().requires_grad_()
+    before = [t.detach().clone() for t in (x, r, w)]
+    eps = 1e-5
+    y, added, rstd, sum_fp32 = fused_norm(x, r, w, eps)
+    assert not rstd.requires_grad and not sum_fp32.requires_grad
+    gy, gr = torch.randn_like(y), torch.randn_like(added)
+    outputs, grads = [], []
+    if branch != "residual":
+        outputs.append(y)
+        grads.append(gy)
+    if branch != "normalized":
+        outputs.append(added)
+        grads.append(gr)
+    torch.autograd.backward(outputs, grads)
+
+    xr, rr, wr = [t.detach().cpu().double().requires_grad_() for t in (x, r, w)]
+    s = xr + rr
+    reference = s / torch.sqrt(s.square().mean(-1, keepdim=True) + eps) * wr
+    ref_outputs, ref_grads = [], []
+    if branch != "residual":
+        ref_outputs.append(reference)
+        ref_grads.append(gy.cpu().double())
+    if branch != "normalized":
+        ref_outputs.append(s)
+        ref_grads.append(gr.cpu().double())
+    torch.autograd.backward(ref_outputs, ref_grads)
+    for actual, expected in zip((x.grad, r.grad, w.grad), (xr.grad, rr.grad, wr.grad)):
+        if expected is None:
+            expected = torch.zeros_like(wr)
+        assert actual is not None
+        assert torch.isfinite(actual).all()
+        tolerance = {torch.bfloat16: .01, torch.float16: .001, torch.float32: 5e-6}[dtype]
+        torch.testing.assert_close(actual.cpu().double(), expected, rtol=tolerance, atol=tolerance)
+        if expected.numel() and expected.abs().sum() > 0:
+            assert actual.abs().sum() > 0
+    assert_bytes(x.grad, r.grad)
+    for actual, saved in zip((x, r, w), before):
+        assert_bytes(actual, saved)
+
+
+def test_native_backward_uses_forward_caches(monkeypatch):
+    x, r, w = inputs((3, 2048), torch.bfloat16)
+    x.requires_grad_()
+    r.requires_grad_()
+    w.requires_grad_()
+    y, added, rstd, sum_fp32 = fused_norm(x, r, w)
+    native = torch.ops.aten._fused_rmsnorm_backward
+    calls = []
+
+    def checked_native(grad, invvar, saved_input, shape, eps, weight):
+        assert grad.dtype == saved_input.dtype == weight.dtype == torch.float32
+        assert saved_input.data_ptr() == sum_fp32.data_ptr()
+        assert invvar.data_ptr() == rstd.data_ptr()
+        assert_bytes(saved_input, x.detach().float() + r.detach().float())
+        calls.append(True)
+        return native(grad, invvar, saved_input, shape, eps, weight)
+
+    monkeypatch.setattr(torch.ops.aten, "_fused_rmsnorm_backward", checked_native)
+    (y.float().square().sum() + added.float().square().sum()).backward()
+    assert len(calls) == 1
+
+
+def test_backward_aliased_input_and_optimizer_update():
+    x, _, w = inputs((7, 2048), torch.float32)
+    x.requires_grad_()
+    w.requires_grad_()
+    before = w.detach().clone()
+    optimizer = torch.optim.SGD([w], lr=.01)
+    for _ in range(2):
+        optimizer.zero_grad(set_to_none=True)
+        x.grad = None
+        y, added, _, _ = fused_norm(x, x, w)
+        (y.square().mean() + added.square().mean()).backward()
+        xr = x.detach().cpu().double().requires_grad_()
+        wr = w.detach().cpu().double().requires_grad_()
+        s = xr + xr
+        reference = s / torch.sqrt(s.square().mean(-1, keepdim=True) + 1e-6) * wr
+        (reference.square().mean() + s.square().mean()).backward()
+        torch.testing.assert_close(x.grad.cpu().double(), xr.grad, rtol=5e-5, atol=2e-7)
+        assert torch.isfinite(w.grad).all() and w.grad.abs().sum() > 0
+        optimizer.step()
+    assert not torch.equal(w, before)
+
+
+def test_backward_detects_modified_cache():
+    x, r, w = inputs((2, 2048), torch.float32)
+    y, _, _, sum_fp32 = fused_norm(x.requires_grad_(), r, w)
+    sum_fp32.add_(1)
+    with pytest.raises(RuntimeError, match="modified by an inplace operation"):
+        y.sum().backward()
 
 
 def test_invalid_inputs():
