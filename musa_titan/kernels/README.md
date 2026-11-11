@@ -98,49 +98,6 @@ Forward remains batch invariant. Native backward reductions are not claimed
 to be batch invariant or bitwise identical to SGLang backward. This does not
 install a Megatron layer adapter or establish end-to-end RL alignment.
 
-## Upstream references
-
-The ordinary RMSNorm implementation is adapted from
-[vLLM batch_invariant.py](https://github.com/vllm-project/vllm/blob/66a168a197ba214a5b70a74fa2e713c9eeb3251a/vllm/model_executor/layers/batch_invariant.py#L649).
-It uses the same algorithm as SGLang's `sglang.srt.batch_invariant_ops`.
-Titan adds input validation, empty-batch handling, explicit four-warp launch
-configuration and an optional rstd store for native backward.
-
-## Validation
-
-From the repository root on a MUSA host:
-
-```bash
-PYTHONPATH=. python3 -m pytest test/test_rmsnorm_kernels.py -q
-```
-
-To check the migration against explicit source checkouts:
-
-```bash
-PYTHONPATH=. python3 test/compare_rmsnorm_sources.py \
-  --sglang-source /path/to/sglang/python/sglang/srt/batch_invariant_ops/batch_invariant_ops.py
-```
-
-This comparison records source hashes and checks original-dtype bytes for
-ordinary outputs against SGLang. Optional `--rmsnorm-reference` and
-`--fused-reference` arguments accept additional standalone source files.
-It also checks that ordinary RMSNorm's autograd-enabled forward matches its
-inference output byte-for-byte.
-SGLang's RMSNorm definitions are loaded directly
-from the supplied source, without importing its unrelated serving stack.
-
-Tests cover FP64-reference correctness, original-dtype byte invariance under
-batch/position/layout changes, tail widths, non-unit weights, cancellation,
-input immutability, independent output storage, strided weights, empty batches,
-graph replay with changed inputs. Ordinary backward checks include independent
-FP64 autograd references, input-only/weight-only/joint gradients, strided and
-empty inputs, byte-exact comparison with the native backward given the same
-saved rstd, saved-tensor mutation detection and two effective optimizer updates.
-Fused backward checks include independent FP64 autograd references,
-all three input gradients, normalized/residual/combined losses, strided and
-aliased inputs, empty batches, native use of the actual forward caches,
-cache mutation detection, and two effective optimizer updates.
-
 ## Benchmark
 
 The comparison uses the previously extracted batch-invariant forward reference,
@@ -210,39 +167,39 @@ does not imply byte equality between implementations.
 
 ### RMSNorm forward
 
-| Rows | Ref FWD block / vlen | Titan (us) | Extracted reference (us) | Ref / Titan | max_abs_diff y |
-| --- | --- | ---: | ---: | ---: | ---: |
-| 16 | 1024 x 1 / 8 | 6.03 | 5.89 | 0.98x | 0 |
-| 128 | 1024 x 1 / 8 | 6.19 | 13.32 | 2.15x | 0.00390625 |
-| 4096 | 1024 x 1 / 8 | 29.25 | 305.68 | 10.45x | 0.015625 |
-| 32 x 4096 | 1024 x 1 / 8 | 803.36 | 6296.98 | 7.84x | 0.03125 |
+| Rows | Titan (us) | Extracted reference (us) | Ref / Titan | max_abs_diff y |
+| --- | ---: | ---: | ---: | ---: |
+| 16 | 6.03 | 5.89 | 0.98x | 0 |
+| 128 | 6.19 | 13.32 | 2.15x | 0.00390625 |
+| 4096 | 29.25 | 305.68 | 10.45x | 0.015625 |
+| 32 x 4096 | 803.36 | 6296.98 | 7.84x | 0.03125 |
 
 ### RMSNorm forward + backward
 
-| Rows | Ref FWD block / vlen | Titan (us) | Extracted reference (us) | Ref / Titan | max_abs_diff y | max_abs_diff dX | max_abs_diff dWeight |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 16 | 1024 x 1 / 8 | 22.19 | 22.86 | 1.03x | 0 | 0 | 0 |
-| 128 | 1024 x 1 / 8 | 35.71 | 42.86 | 1.20x | 0.00390625 | 0.015625 | 0 |
-| 4096 | 1024 x 1 / 8 | 111.19 | 318.94 | 2.87x | 0.015625 | 0.015625 | 0 |
-| 32 x 4096 | 1024 x 1 / 8 | 3251.93 | 8725.22 | 2.68x | 0.03125 | 0.03125 | 0 |
+| Rows | Titan (us) | Extracted reference (us) | Ref / Titan | max_abs_diff y | max_abs_diff dX | max_abs_diff dWeight |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 16 | 22.19 | 22.86 | 1.03x | 0 | 0 | 0 |
+| 128 | 35.71 | 42.86 | 1.20x | 0.00390625 | 0.015625 | 0 |
+| 4096 | 111.19 | 318.94 | 2.87x | 0.015625 | 0.015625 | 0 |
+| 32 x 4096 | 3251.93 | 8725.22 | 2.68x | 0.03125 | 0.03125 | 0 |
 
 ### Fused add RMSNorm forward
 
-| Rows | Ref FWD block / vlen | Titan (us) | Extracted reference (us) | Ref / Titan | max_abs_diff y | max_abs_diff residual |
-| --- | --- | ---: | ---: | ---: | ---: | ---: |
-| 16 | 1024 x 1 / 8 | 6.08 | 10.82 | 1.78x | 0.03125 | 0 |
-| 128 | 1024 x 1 / 8 | 6.68 | 17.64 | 2.64x | 0.03125 | 0 |
-| 4096 | 1024 x 1 / 8 | 86.38 | 328.90 | 3.81x | 0.03125 | 0 |
-| 32 x 4096 | 1024 x 1 / 8 | 2879.63 | 7387.48 | 2.57x | 0.03125 | 0 |
+| Rows | Titan (us) | Extracted reference (us) | Ref / Titan | max_abs_diff y | max_abs_diff residual |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 16 | 6.08 | 10.82 | 1.78x | 0.03125 | 0 |
+| 128 | 6.68 | 17.64 | 2.64x | 0.03125 | 0 |
+| 4096 | 86.38 | 328.90 | 3.81x | 0.03125 | 0 |
+| 32 x 4096 | 2879.63 | 7387.48 | 2.57x | 0.03125 | 0 |
 
 ### Fused add RMSNorm forward + backward
 
-| Rows | Ref FWD block / vlen | Titan (us) | Extracted reference (us) | Ref / Titan | max_abs_diff y | max_abs_diff residual | max_abs_diff dX | max_abs_diff dResidual | max_abs_diff dWeight |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 16 | 1024 x 1 / 8 | 41.63 | 32.19 | 0.77x | 0.03125 | 0 | 0.03125 | 0.03125 | 0.0625 |
-| 128 | 1024 x 1 / 8 | 59.62 | 52.62 | 0.88x | 0.03125 | 0 | 0.03125 | 0.03125 | 0.25 |
-| 4096 | 1024 x 1 / 8 | 412.03 | 468.77 | 1.14x | 0.03125 | 0 | 0.03125 | 0.03125 | 1 |
-| 32 x 4096 | 1024 x 1 / 8 | 14257.65 | 10959.57 | 0.77x | 0.03125 | 0 | 0.03125 | 0.03125 | 8 |
+| Rows | Titan (us) | Extracted reference (us) | Ref / Titan | max_abs_diff y | max_abs_diff residual | max_abs_diff dX | max_abs_diff dResidual | max_abs_diff dWeight |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 16 | 41.63 | 32.19 | 0.77x | 0.03125 | 0 | 0.03125 | 0.03125 | 0.0625 |
+| 128 | 59.62 | 52.62 | 0.88x | 0.03125 | 0 | 0.03125 | 0.03125 | 0.25 |
+| 4096 | 412.03 | 468.77 | 1.14x | 0.03125 | 0 | 0.03125 | 0.03125 | 1 |
+| 32 x 4096 | 14257.65 | 10959.57 | 0.77x | 0.03125 | 0 | 0.03125 | 0.03125 | 8 |
 
 The four measured shapes are 16, 128, 4096 and 32 x 4096 (=131072) rows. Ordinary
 RMSNorm matches exactly at M=16 in this run; larger shapes expose output/input-
