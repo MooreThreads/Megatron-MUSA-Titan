@@ -22,49 +22,63 @@ def register_exit_handler():
     atexit.register(clean_teardown)
 
 
-def patch_after_import_torch():
-    global _TORCH_PATCHED
+def _apply_torchada():
+    """Install torchada's generic CUDA-to-MUSA compatibility layer."""
+    import torchada
+    from torchada._patch import _CudaModuleWrapper, apply_patches
 
-    # 1. Patch for torch.xxx
-    torch.cuda.is_available = torch.musa.is_available
-    # torch.cuda.current_device = lambda : f'musa:{torch.musa.current_device()}'
-    torch.cuda.current_device = torch.musa.current_device
-    torch.cuda.device_count = torch.musa.device_count
-    torch.cuda.set_device = torch.musa.set_device
-    torch.cuda.DoubleTensor = torch.musa.DoubleTensor
-    torch.cuda.FloatTensor = torch.musa.FloatTensor
-    torch.cuda.LongTensor = torch.musa.LongTensor
-    torch.cuda.HalfTensor = torch.musa.HalfTensor
-    torch.cuda.BFloat16Tensor = torch.musa.BFloat16Tensor
-    torch.cuda.IntTensor = torch.musa.IntTensor
-    torch.cuda.get_rng_state = torch.musa.get_rng_state
-    torch.cuda.set_rng_state = torch.musa.set_rng_state
-    torch.cuda.random.get_rng_state = torch.musa.get_rng_state
-    torch.cuda.synchronize = torch.musa.synchronize
-    torch.cuda.empty_cache = torch.musa.empty_cache
-    torch.Tensor.cuda = torch.Tensor.musa
-    torch.cuda.manual_seed = torch.musa.manual_seed
-    torch.cuda.Event = torch.musa.Event
-    torch.cuda.Stream = torch.musa.Stream
-    torch.cuda.stream = torch.musa.stream
-    torch.cuda.get_device_properties = torch.musa.get_device_properties
-    # Activate torch.musa.default_generators before exposing them through CUDA.
-    torch.musa.current_device()
-    torch.cuda.default_generators = torch.musa.default_generators
-    # torch.cuda.amp = torch.musa.amp
-    # Memory
-    torch.cuda.memory_allocated = torch.musa.memory_allocated
-    torch.cuda.max_memory_allocated = torch.musa.max_memory_allocated
-    torch.cuda.memory_reserved = torch.musa.memory_reserved
-    torch.cuda.max_memory_reserved = torch.musa.max_memory_reserved
-    torch.cuda.memory._record_memory_history = torch.musa.memory._record_memory_history
-    torch.cuda.memory._snapshot = torch.musa.memory._snapshot
+    apply_patches()
+    # torchada snapshots its availability switch only when it creates the CUDA
+    # wrapper.  Megatron may import torchada earlier, so install the MUSA result
+    # explicitly and replace any value cached from the first application.
+    cuda_module = torch.cuda
+    if isinstance(cuda_module, _CudaModuleWrapper):
+        cuda_module._force_cuda_available = True
+        cuda_module.is_available = torch.musa.is_available
+    else:
+        torch.cuda.is_available = torch.musa.is_available
+    return torchada
 
-    # (yehua.zhang) replace lazy_call to avoid cpu memory leak,
-    # because failure of cuda init in lazy_call will cause endless operation of emplace back.
-    torch.cuda._lazy_call = torch.musa.core._lazy_init._lazy_call
-    torch.cuda._lazy_init = torch.musa.core._lazy_init._lazy_init
 
+def _get_available_device_type():
+    """Select the native available device before CUDA compatibility aliases."""
+    # torchada makes torch.cuda.is_available() report the MUSA availability.
+    # PyTorch's generic selector must therefore check PrivateUse1 first or it
+    # will incorrectly select ``cuda`` on a MUSA-only host.
+    custom_backend_name = torch._C._get_privateuse1_backend_name()
+    custom_device_mod = getattr(torch, custom_backend_name, None)
+    if custom_device_mod and custom_device_mod.is_available():
+        return custom_backend_name
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available():
+        return "mps"
+    if hasattr(torch, "xpu") and torch.xpu.is_available():
+        return "xpu"
+    if hasattr(torch, "mtia") and torch.mtia.is_available():
+        return "mtia"
+    return None
+
+
+def _patch_available_device_type():
+    """Patch PyTorch and already-imported DCP device selectors."""
+    original_device_type = torch._utils._get_available_device_type
+    torch._utils._get_available_device_type = _get_available_device_type
+
+    # DCP may capture the original helper during dependency imports. Update
+    # only an alias that still points at PyTorch's original implementation;
+    # preserve third-party replacements and avoid eagerly importing DCP.
+    filesystem = sys.modules.get("torch.distributed.checkpoint.filesystem")
+    if (
+        filesystem is not None
+        and getattr(filesystem, "_get_available_device_type", None)
+        is original_device_type
+    ):
+        filesystem._get_available_device_type = _get_available_device_type
+
+
+def _install_musa_specific_cuda_compatibility():
+    """Restore behavior that generic torchada redirection does not provide."""
     def get_device_capability_musa(*args, **kwargs):
         # CUDA and MUSA compute capabilities differ. SGLang-MUSA maps CUDA
         # capability values to MUSA values directly, while Megatron remains
@@ -76,64 +90,6 @@ def patch_after_import_torch():
         return [8, 3]
     torch.cuda.get_device_capability = get_device_capability_musa
 
-    if _TORCH_PATCHED:
-        return
-
-    # 2.Patch for torch args related to cuda/musa
-    def hook_cuda_device(device):
-        if isinstance(device, str) and device.startswith("cuda"):
-            return device.replace("cuda", "musa")
-        if isinstance(device, torch.device) and device.type == "cuda":
-            return torch.device("musa", device.index)
-        return device
-
-    def maybe_hook_cuda_args(args, kwargs):
-        new_args = [hook_cuda_device(arg) for arg in args]
-        if "device" in kwargs:
-            kwargs["device"] = hook_cuda_device(kwargs["device"])
-        else:
-            # Preserve the active ``with torch.device(...)`` context after
-            # wrapping torch's device constructors below.
-            try:
-                from torch.utils._device import CURRENT_DEVICE
-            except ImportError:
-                CURRENT_DEVICE = None
-            if CURRENT_DEVICE is not None:
-                kwargs["device"] = hook_cuda_device(CURRENT_DEVICE)
-        return tuple(new_args), kwargs
-
-    def register_original_device_constructors(originals):
-        # DeviceContext dispatches only registered constructor identities.
-        # Keep both the original and wrapped functions registered so MUSA
-        # contexts do not silently create CPU tensors.
-        try:
-            from torch.utils._device import _device_constructors
-            constructors = _device_constructors()
-        except Exception:
-            return
-        for original in originals:
-            constructors.add(original)
-
-    # retain torch.full reference
-    original_full = torch.full
-    original_device_constructors = [original_full]
-    # redeine torch.zeros
-    def patched_full(*args, **kwargs):
-        args, kwargs = maybe_hook_cuda_args(args, kwargs)
-        result = original_full(*args, **kwargs)
-        return result
-    torch.full = patched_full
-
-    # retain torch.tensor reference
-    original_tensor = torch.tensor
-    original_device_constructors.append(original_tensor)
-    # redefine torch.tensor
-    def patched_tensor(*args, **kwargs):
-        args, kwargs = maybe_hook_cuda_args(args, kwargs)
-        result = original_tensor(*args, **kwargs)
-        return result
-    torch.tensor = patched_tensor
-
     # redefine torch.Tensor type
     orig_type = torch.Tensor.type
     def musa_type(*args, **kwargs):
@@ -143,72 +99,21 @@ def patch_after_import_torch():
         return result
     torch.Tensor.type = musa_type
 
-    # retain torch.zeros reference
-    original_zeros = torch.zeros
-    original_device_constructors.append(original_zeros)
-    # redeine torch.zeros
-    def patched_zeros(*args, **kwargs):
-        args, kwargs = maybe_hook_cuda_args(args, kwargs)
-        result = original_zeros(*args, **kwargs)
-        return result
-    torch.zeros = patched_zeros
 
-    # retain torch.empty reference
-    original_empty = torch.empty
-    original_device_constructors.append(original_empty)
-    # redifine torch.empty
-    def patched_empty(*args, **kwargs):
-        args, kwargs = maybe_hook_cuda_args(args, kwargs)
-        result = original_empty(*args, **kwargs)
-        return result
-    torch.empty = patched_empty
+def patch_after_import_torch():
+    global _TORCH_PATCHED
 
-    register_original_device_constructors(
-        original_device_constructors + [torch.full, torch.tensor, torch.zeros, torch.empty]
-    )
+    _apply_torchada()
+    _patch_available_device_type()
+    if _TORCH_PATCHED:
+        # Another runtime component may import torchada later.  Reapply the
+        # values that its generic wrapper must not overwrite.
+        _install_musa_specific_cuda_compatibility()
+        return
 
-    # Original tensor class
-    original_is_cuda = torch.Tensor.is_cuda
-    def always_cuda(self):
-        return self.is_musa
-
-    # TODO : this patch may be override by transformer_engine patch
-    # we'd better unify this patch with transformer_engine patch.
-    torch.Tensor.is_cuda = property(always_cuda)
-
-    # 3. Patch for nccl/mccl
-    origin_init_process_group = torch.distributed.init_process_group
-    def patched_init_process_group(*args, **kwargs):
-        if 'backend' in kwargs and kwargs['backend'] == 'nccl':
-            kwargs['backend'] = 'mccl'
-        result = origin_init_process_group(*args, **kwargs)
-        return result
-    torch.distributed.init_process_group = patched_init_process_group
-
+    _install_musa_specific_cuda_compatibility()
     _TORCH_PATCHED = True
 
-    # 3. disable pin memory
-    # def pin_memory(data, device=None):
-    #     return data
-    # torch.utils.data._utils.pin_memory.pin_memory = pin_memory
-
-    # 4. disable nvtx
-    def _pass_pvtx(*args, **kwargs):
-        return
-    torch.cuda.nvtx.range_push = _pass_pvtx
-    torch.cuda.nvtx.range_pop = _pass_pvtx
-
-    # 5. disable dynamo
-    import os
-    # os.environ["NVTE_TORCH_COMPILE"] = "0"
-    # os.environ["TORCHDYNAMO_DISABLE"] = "1"
-
-    def noop(func=None, *args, **kwargs):                                                                  
-        if func is not None:                                                                               
-            return func                                                                                    
-        return lambda f: f
-    # torch.compile = noop
-    # torch.jit.script = noop
 
 def py_patch():
     # Core 0.19 uses the standard override decorator added in Python 3.12.
