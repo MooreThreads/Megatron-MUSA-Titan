@@ -13,8 +13,16 @@ _inside_sequence_parallel_backward = ContextVar(
 linear_backward = layers.LinearWithGradAccumulationAndAsyncCommunication.backward
 
 
+class _AlreadyWaitedWork:
+    def wait(self):
+        return True
+
+
+_already_waited_work = _AlreadyWaitedWork()
+
+
 def wait_for_sequence_parallel_collective_before_compute(collective):
-    """Keep the native Work handle and establish its dependency immediately."""
+    """Establish the stream dependency once, before the next GEMM."""
 
     @wraps(collective)
     def collective_completed_before_compute(*args, **kwargs):
@@ -24,6 +32,9 @@ def wait_for_sequence_parallel_collective_before_compute(collective):
             # finish before wgrad GEMM. Work.wait() orders the current stream,
             # without adding a device-wide synchronization.
             work.wait()
+            # Core calls wait() again at its usual overlap boundary. The
+            # current stream already depends on this collective's end event.
+            return _already_waited_work
         return work
 
     return collective_completed_before_compute
@@ -47,7 +58,7 @@ _patch_metadata = {
     "commits": {"megatron": git_commit(layers.__file__)},
     "authored": {
         "author": "Xiaoteng Cui",
-        "modified_date": "2026-10-15",
+        "modified_date": "2026-11-11",
         "upstream": {
             "megatron": {
                 "branch": "core_v0.19.0",
