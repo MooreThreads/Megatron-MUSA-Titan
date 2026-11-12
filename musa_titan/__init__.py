@@ -6,8 +6,6 @@ import torch_musa
 
 from ._version import __version__
 
-_TORCH_PATCHED = False
-
 
 def register_exit_handler():
     # Clean teardown: drain pending MCCL collectives + stop watchdog threads
@@ -22,29 +20,10 @@ def register_exit_handler():
     atexit.register(clean_teardown)
 
 
-def _apply_torchada():
-    """Install torchada's generic CUDA-to-MUSA compatibility layer."""
-    import torchada
-    from torchada._patch import _CudaModuleWrapper, apply_patches
-
-    apply_patches()
-    # torchada snapshots its availability switch only when it creates the CUDA
-    # wrapper.  Megatron may import torchada earlier, so install the MUSA result
-    # explicitly and replace any value cached from the first application.
-    cuda_module = torch.cuda
-    if isinstance(cuda_module, _CudaModuleWrapper):
-        cuda_module._force_cuda_available = True
-        cuda_module.is_available = torch.musa.is_available
-    else:
-        torch.cuda.is_available = torch.musa.is_available
-    return torchada
-
-
 def _get_available_device_type():
-    """Select the native available device before CUDA compatibility aliases."""
-    # torchada makes torch.cuda.is_available() report the MUSA availability.
-    # PyTorch's generic selector must therefore check PrivateUse1 first or it
-    # will incorrectly select ``cuda`` on a MUSA-only host.
+    # torch.cuda.is_available is aliased to torch.musa.is_available below, so the
+    # CUDA branch would report "cuda" on a MUSA-only machine. PrivateUse1 (musa)
+    # must be resolved first.
     custom_backend_name = torch._C._get_privateuse1_backend_name()
     custom_device_mod = getattr(torch, custom_backend_name, None)
     if custom_device_mod and custom_device_mod.is_available():
@@ -53,67 +32,78 @@ def _get_available_device_type():
         return "cuda"
     if torch.backends.mps.is_available():
         return "mps"
-    if hasattr(torch, "xpu") and torch.xpu.is_available():
+    if hasattr(torch, "xpu") and torch.xpu.is_available():  # type: ignore[attr-defined]
         return "xpu"
     if hasattr(torch, "mtia") and torch.mtia.is_available():
         return "mtia"
+    # add more available device types here
     return None
 
-
-def _patch_available_device_type():
-    """Patch PyTorch and already-imported DCP device selectors."""
-    original_device_type = torch._utils._get_available_device_type
-    torch._utils._get_available_device_type = _get_available_device_type
-
-    # DCP may capture the original helper during dependency imports. Update
-    # only an alias that still points at PyTorch's original implementation;
-    # preserve third-party replacements and avoid eagerly importing DCP.
-    filesystem = sys.modules.get("torch.distributed.checkpoint.filesystem")
-    if (
-        filesystem is not None
-        and getattr(filesystem, "_get_available_device_type", None)
-        is original_device_type
-    ):
-        filesystem._get_available_device_type = _get_available_device_type
-
-
-def _install_musa_specific_cuda_compatibility():
-    """Restore behavior that generic torchada redirection does not provide."""
-    def get_device_capability_musa(*args, **kwargs):
-        # CUDA and MUSA compute capabilities differ. SGLang-MUSA maps CUDA
-        # capability values to MUSA values directly, while Megatron remains
-        # unmodified and receives this compatibility mapping through a patch.
-        from packaging.version import Version
-        torch_version = Version(torch.__version__).base_version
-        if Version(torch_version) > Version("2.5.0"):
-            return (8, 3)
-        return [8, 3]
-    torch.cuda.get_device_capability = get_device_capability_musa
-
-    # redefine torch.Tensor type
+def _patch_tensor_type():
+    """Install or reuse the CUDA tensor type naming wrapper."""
     orig_type = torch.Tensor.type
+    if getattr(orig_type, "_musa_cuda_type_alias", False):
+        return
+
     def musa_type(*args, **kwargs):
         result = orig_type(*args, **kwargs)
         if isinstance(result, str):
             result = result.replace("musa", "cuda")
         return result
+
+    # TE and Titan may both install this wrapper in the same process.
+    musa_type._musa_cuda_type_alias = True
     torch.Tensor.type = musa_type
 
 
+_CUDA_COMPATIBILITY_CAPABILITY = (8, 0)
+
+
+class _CudaCompatibilityDeviceProperties:
+    """Expose CUDA capability while delegating native MUSA properties."""
+
+    __slots__ = ("_properties",)
+    major, minor = _CUDA_COMPATIBILITY_CAPABILITY
+
+    def __init__(self, properties):
+        self._properties = properties
+
+    def __getattr__(self, name):
+        return getattr(self._properties, name)
+
+    def __repr__(self):
+        return (
+            f"{type(self).__name__}(name={self.name!r}, major={self.major}, minor={self.minor}, "
+            f"total_memory={self.total_memory}, multi_processor_count={self.multi_processor_count})"
+        )
+
+
+def _get_cuda_device_properties(device=None):
+    return _CudaCompatibilityDeviceProperties(torch.musa.get_device_properties(device))
+
+
 def patch_after_import_torch():
-    global _TORCH_PATCHED
+    from torchada import apply_patches
 
-    _apply_torchada()
-    _patch_available_device_type()
-    if _TORCH_PATCHED:
-        # Another runtime component may import torchada later.  Reapply the
-        # values that its generic wrapper must not overwrite.
-        _install_musa_specific_cuda_compatibility()
-        return
-
-    _install_musa_specific_cuda_compatibility()
-    _TORCH_PATCHED = True
-
+    apply_patches()
+    original_device_type = torch._utils._get_available_device_type
+    if hasattr(torch.cuda, "_force_cuda_available"):
+        torch.cuda._force_cuda_available = True
+    torch.cuda.is_available = torch.musa.is_available
+    # Keep the CUDA-facing capability queries consistent after TorchAda.
+    torch.cuda.get_device_capability = lambda device=None: _CUDA_COMPATIBILITY_CAPABILITY
+    torch.cuda.get_device_properties = _get_cuda_device_properties
+    torch.cuda._get_device_properties = _get_cuda_device_properties
+    torch._utils._get_available_device_type = _get_available_device_type
+    # DCP may have captured the original helper before this initialization.
+    # Update that alias without importing DCP or replacing third-party hooks.
+    filesystem = sys.modules.get("torch.distributed.checkpoint.filesystem")
+    if (
+        filesystem is not None
+        and getattr(filesystem, "_get_available_device_type", None) is original_device_type
+    ):
+        filesystem._get_available_device_type = _get_available_device_type
+    _patch_tensor_type()
 
 def py_patch():
     # Core 0.19 uses the standard override decorator added in Python 3.12.
