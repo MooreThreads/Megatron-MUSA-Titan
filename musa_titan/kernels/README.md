@@ -35,8 +35,9 @@ to preserve the specified arithmetic.
   and weight. `normalized` and `residual_sum` are differentiable; `rstd` and
   `residual_sum_fp32` are non-differentiable caches. Do not mutate these caches
   or weight before backward. Higher-order gradients are unsupported.
-- Importing this module does not install Megatron, TE or SGLang replacements.
-  In particular, it does not change training's existing RMSNorm backward.
+- Importing `musa_titan.kernels` exposes the operator APIs. Calling
+  `apply_pretrain_patch()` or `apply_rl_patch()` installs the Megatron/TE
+  integration described below.
 - The package requires the existing Titan PyTorch/torch_musa/Triton environment.
   CUDA forward is accepted by the tensor contract but is not validated by the
   MUSA tests; CUDA autograd is rejected.
@@ -60,6 +61,48 @@ to BF16/FP16 and then calling ordinary RMSNorm.
 This numerical contract does not claim bitwise equality with SGLang's native
 in-place `sgl_kernel.fused_add_rmsnorm`,
 which has a different reduction implementation and API.
+
+## Megatron integration
+
+Call the training entry point **before constructing the model**:
+
+```python
+from musa_titan import apply_rl_patch  # or apply_pretrain_patch
+apply_rl_patch()
+```
+
+The shared Megatron installer applies `musa_titan.megatron.rmsnorm.apply_patch()`
+once. All replacements use the patch audit helper and report the Megatron
+checkout revision and installed Transformer Engine package version.
+
+- **Standalone norms:** TE `RMSNorm.forward` and the RMSNorm branch of Titan's
+  Megatron `FusedLayerNorm` use `rms_norm_batch_invariant`, including Q/K and
+  final norms built through `TENorm`. Parameters, names and sequence-parallel
+  attributes are preserved. Standalone zero-centered gamma is supported.
+- **Norm fused with Linear/MLP:** TE's `rmsnorm_fwd` entry point and its explicit
+  extension/operation-fuser aliases use the Triton forward for
+  non-quantized, non-zero-centered MUSA RMSNorm. The kernel writes directly
+  into TE's output buffer and returns the actual rstd. TE retains GEMM,
+  communications and its existing native backward.
+- **Residual-add + norm:** newly constructed decoder `TransformerLayer`s with
+  a standalone pre-MLP RMSNorm fuse self-attention's residual add with that
+  norm. The fused kernel returns both the normalized MLP input and residual;
+  the following norm call consumes the normalized result once. The original
+  layer schedule, MLP and parameter ownership are preserved. Tensor-local
+  handoff avoids a module-level cache across microbatches or recomputation.
+
+Residual fusion requires identity cross-attention placeholders, no bias or
+dropout, matching activation dtypes and no selective pre-MLP norm recomputation,
+FP8, activation offload, FSDP or norm input/backward hooks. Other paths keep
+their original residual add and use ordinary RMSNorm where supported.
+Full-layer checkpoint recomputation is supported. Inter-layer/final MLP
+residual adds remain on Megatron's original schedule; this patch does not
+reorganize a TransformerBlock into an SGLang decoder schedule.
+
+LayerNorm, unsupported devices/shapes, quantized normalization and zero-centered
+normalization inside TE fused Linear/MLP retain their original implementations.
+The integration has bounded model-parallel-size-one correctness coverage;
+the kernel benchmarks below are not full-model or multi-rank performance results.
 
 ## Native backward
 
@@ -95,8 +138,8 @@ y, added, rstd, sum_fp32 = fused_add_rmsnorm_batch_invariant(x, residual, weight
 ```
 
 Forward remains batch invariant. Native backward reductions are not claimed
-to be batch invariant or bitwise identical to SGLang backward. This does not
-install a Megatron layer adapter or establish end-to-end RL alignment.
+to be batch invariant or bitwise identical to SGLang backward. These operator
+properties do not establish end-to-end RL alignment.
 
 ## Benchmark
 

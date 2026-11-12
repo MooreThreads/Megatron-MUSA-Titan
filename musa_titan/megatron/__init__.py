@@ -76,6 +76,9 @@ def apply_patch():
         pass
 
     megatron.training.initialize._compile_dependencies = _compile_dependencies
+
+    from .rmsnorm import apply_patch as apply_rmsnorm_patch
+    apply_rmsnorm_patch()
     _patch_applied = True
 
 

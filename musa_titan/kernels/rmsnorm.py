@@ -91,7 +91,7 @@ def _rms_norm_kernel(
         tl.store(output_row_start_ptr + col_idx, output, mask=mask)
 
 
-def _rms_norm_forward(input, weight, eps, *, save_rstd=False):
+def _rms_norm_forward(input, weight, eps, *, save_rstd=False, out=None):
     """Preserve the Triton forward and optionally save its actual inverse RMS."""
     _validate_inputs(input, weight, eps)
 
@@ -103,7 +103,7 @@ def _rms_norm_forward(input, weight, eps, *, save_rstd=False):
 
     n_rows, n_cols = input_2d.shape
 
-    output = torch.empty_like(input_2d)
+    output = torch.empty_like(input_2d) if out is None else out.reshape(input_2d.shape)
     rstd = (
         torch.empty(n_rows, dtype=torch.float32, device=input.device)
         if save_rstd else None
