@@ -93,7 +93,8 @@ checkout revision and installed Transformer Engine package version.
 
 Residual fusion requires identity cross-attention placeholders, no bias or
 dropout, matching activation dtypes and no selective pre-MLP norm recomputation,
-FP8, activation offload, FSDP or norm input/backward hooks. Other paths keep
+FP8, activation offload, FSDP, attention-only graph scope or norm input/backward
+hooks. Other paths keep
 their original residual add and use ordinary RMSNorm where supported.
 Full-layer checkpoint recomputation is supported. Inter-layer/final MLP
 residual adds remain on Megatron's original schedule; this patch does not

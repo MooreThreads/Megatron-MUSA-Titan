@@ -279,6 +279,22 @@ def test_layer_clone_uses_its_own_norm_weights(runtime):
     assert torch.equal(layer.pre_mlp_layernorm.weight, torch.ones_like(layer.pre_mlp_layernorm.weight))
 
 
+def test_attention_only_graph_does_not_cache_across_graph_boundary(runtime, monkeypatch):
+    layer = make_layer()
+    layer.config.enable_cuda_graph = True
+    layer.config.cuda_graph_scope = "attn"
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("attention-only replay must leave the following norm outside fusion")
+
+    monkeypatch.setattr(runtime, "fused_add_rmsnorm_batch_invariant", forbidden)
+    x = torch.randn(3, 1, 128, device="musa", dtype=torch.bfloat16)
+    residual = torch.randn_like(x)
+    added = layer.self_attn_bda(True, False)((x, None), residual, 0.)
+    assert_bytes(added, x + residual)
+    assert not hasattr(added, runtime._CACHE_ATTR)
+
+
 def test_layer_graph_replay(runtime):
     layer = make_layer().eval()
     x = torch.randn(3, 1, 128, device="musa", dtype=torch.bfloat16)

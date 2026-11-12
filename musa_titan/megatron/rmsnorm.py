@@ -179,6 +179,10 @@ def apply_patch():
                 or self.recompute_pre_mlp_layernorm
                 or FP8GlobalStateManager.is_fp8_enabled()
                 or getattr(self.config, "mlp_rms_recompute", False)
+                or (
+                    (self.config.enable_cuda_graph or self.config.external_cuda_graph)
+                    and self.config.cuda_graph_scope not in ("full", "full_iteration")
+                )
                 or any(getattr(self.config, name, False) for name in (
                     "cpu_offloading", "offload_moe_fc1_input", "offload_moe_fused_swiglu_input",
                     "use_custom_fsdp", "use_torch_fsdp2",
