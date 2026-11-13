@@ -5,14 +5,17 @@ from importlib.metadata import version
 
 import torch
 
+#hack(dinglei)
+# Use Titan's batch-invariant forward kernels at the existing normalization boundaries.
 from musa_titan.kernels import fused_add_rmsnorm_batch_invariant, rms_norm_batch_invariant
 from musa_titan.kernels.rmsnorm import _rms_norm_forward
+#
 from musa_titan.utils.patching import git_commit, replace_attr
 
 _PATCHED = False
 _CACHE_ATTR = "_musa_titan_pre_mlp_norm"
 _AUTHORED = {
-    "author": "Codex",
+    "author": "dinglei",
     "modified_date": "2026-11-12",
     "upstream": {
         "megatron": {
@@ -52,10 +55,14 @@ def _weight(module, dtype):
 
 
 def _take_cached(module, input):
+    #hack(dinglei)
+    # Consume only this norm's fused result once; tensor-local state survives
+    # full-layer recomputation without leaving a stale activation on the module.
     cached = getattr(input, _CACHE_ATTR, None)
     if cached is not None and cached[0] is module:
         delattr(input, _CACHE_ATTR)
         return cached[1]
+    #
     return None
 
 
@@ -84,24 +91,34 @@ def apply_patch():
     }
 
     def register(owner, name, replacement, target, reason, aliases=()):
+        #hack(dinglei)
+        # Update the runtime entry point and explicit aliases together so
+        # Megatron/TE actually select Titan kernels; retain patch provenance.
         replace_attr(
             owner, name, replacement, reason=reason, commits=revisions,
             authored=_AUTHORED, upstream_path=target,
             current_path="musa_titan/megatron/rmsnorm.py",
             aliases=aliases, commit_branch_verified=True,
         )
+        #
 
     original_te_forward = te.RMSNorm.forward
 
     @wraps(original_te_forward)
     def te_forward(self, input, *args, **kwargs):
+        #hack(dinglei)
+        # Reuse normalization already computed with the preceding residual add.
         cached = _take_cached(self, input)
         if cached is not None:
             return cached
+        #
         if args or kwargs or not _supported(input, self.weight) or FP8GlobalStateManager.is_fp8_enabled():
             return original_te_forward(self, input, *args, **kwargs)
         dtype = maybe_autocast_dtype(default_dtype=self.weight.dtype)
+        #hack(dinglei)
+        # Replace only RMSNorm computation, preserving TE's dtype/gamma handling.
         return rms_norm_batch_invariant(input.to(dtype), _weight(self, dtype), self.eps)
+        #
 
     register(
         te.RMSNorm, "forward", te_forward,
@@ -113,12 +130,18 @@ def apply_patch():
 
     @wraps(original_local_forward)
     def local_forward(self, input):
+        #hack(dinglei)
+        # The local adapter must also consume a fused pre-MLP result only once.
         cached = _take_cached(self, input)
         if cached is not None:
             return cached
+        #
         if self.config.normalization != "RMSNorm" or not _supported(input, self.weight):
             return original_local_forward(self, input)
+        #hack(dinglei)
+        # Route the supported RMSNorm branch to Titan without changing LayerNorm.
         return rms_norm_batch_invariant(input, _weight(self, input.dtype), self.eps)
+        #
 
     register(
         FusedLayerNorm, "forward", local_forward,
@@ -147,6 +170,7 @@ def apply_patch():
             return original_normalize(
                 input, weight, eps, ln_out, quantizer, otype, sm_margin, zero_centered_gamma,
             )
+        #hack(dinglei)
         # TE's fused Linear/MLP autograd still owns GEMM, communication and
         # backward. Supply its expected output buffer and actual forward rstd.
         with torch.no_grad():
@@ -154,6 +178,7 @@ def apply_patch():
                 input, weight.to(input.dtype), eps, save_rstd=True, out=ln_out,
             )
         return ln_out if ln_out is not None else output, None, rstd
+        #
 
     register(
         cpp_extensions, "rmsnorm_fwd", rmsnorm_fwd,
@@ -193,6 +218,9 @@ def apply_patch():
                 or residual.dtype != x.dtype or dtype != x.dtype
             ):
                 return original_bda(output_with_bias, residual, probability)
+            #hack(dinglei)
+            # Normalize the unrounded FP32 residual sum in one Triton launch;
+            # native RMSNorm backward reuses the saved FP32 sum and rstd.
             normalized, added, _, _ = fused_add_rmsnorm_batch_invariant(
                 x, residual, _weight(norm, dtype), norm.eps,
             )
@@ -202,6 +230,7 @@ def apply_patch():
             # full-layer recomputation; the residual remains differentiable.
             setattr(added, _CACHE_ATTR, (norm, normalized))
             return added
+            #
 
         return add_and_normalize
 
@@ -220,9 +249,13 @@ def apply_patch():
             return
         original_factory = self.self_attn_bda
 
+        #hack(dinglei)
+        # Replace only the eligible self-attention BDA boundary to fuse the
+        # residual add with pre-MLP RMSNorm while retaining Megatron's schedule.
         # partial deep-copies its layer argument, unlike a closure capturing
         # the original layer/norm when actor or critic modules are cloned.
         self.self_attn_bda = partial(bda_factory, self, original_factory)
+        #
 
     register(
         transformer_layer.TransformerLayer, "__init__", layer_init,
