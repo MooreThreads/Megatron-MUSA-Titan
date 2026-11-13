@@ -150,21 +150,11 @@ RMSNorm directly launches the extracted `LayerNormGlobalKernelVlen`. The
 add+RMSNorm reference uses the standalone extracted `bias_dropout_add_fused_train`
 (no bias, dropout=0), then that same fixed-dispatch RMSNorm.
 
-```bash
-PYTHONPATH=. MUSA_VISIBLE_DEVICES=1 python3 test/benchmark_rmsnorm_kernels.py \
-  --reference-library /path/to/extracted/kernels.so \
-  --reference-manifest /path/to/extracted/manifest.json \
-  --reference-bda /path/to/extracted/megatron_bias_dropout_add.py \
-  --rows 16 128 4096 131072 --rounds 3 --repeats 50 \
-  --output logs/rmsnorm-extracted-benchmark
-```
-
 The library exports `launch_megatron(input, weight, output, rstd, rows, stream)`.
-The build manifest records its source hashes and compiler flags. The benchmark
-checks the expected BF16/H=2048/eps=1e-6/DIRECT/block/vlen contract before loading
-it, retains the library hash, and records actual kernel grid/block parameters
-from profiler traces. The reference source and library are explicit inputs;
-there is no fallback to installed-library forward.
+The recorded benchmark checked the BF16/H=2048/eps=1e-6/DIRECT/block/vlen
+contract, retained source/library hashes and compiler flags, and recorded actual
+kernel grid/block parameters from profiler traces. It used the extracted
+reference source and library without falling back to installed-library forward.
 
 **Forward dispatch (all four shapes):**
 
