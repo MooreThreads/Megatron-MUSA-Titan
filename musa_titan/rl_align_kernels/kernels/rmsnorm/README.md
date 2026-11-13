@@ -35,19 +35,18 @@ rl_align_kernels/
 ├── tests/
 │   └── ops/
 │       └── rmsnorm/
-│           ├── README.md
-│           ├── test_rmsnorm_kernels.py
-│           ├── test_megatron_rmsnorm_integration.py
-│           └── compare_rmsnorm_sources.py
+│           ├── conftest.py
+│           ├── test_rmsnorm.py
+│           └── test_fused_add_rmsnorm.py
 └── benchmarks/
     └── rmsnorm/
         ├── README.md
-        └── benchmark_rmsnorm_kernels.py
+        └── benchmark_rmsnorm.py
 ```
 
 `kernels/rmsnorm/` contains the implementations.
-[Tests](../../tests/ops/rmsnorm/README.md) cover operator correctness, gradients,
-Megatron/TE integration and SGLang source comparisons.
+[Tests](../../tests/ops/rmsnorm/) cover FP32/BF16 forward accuracy, byte
+invariance and interface contracts, including fused autograd support.
 [Benchmarks](../../benchmarks/rmsnorm/README.md) contain the operator timing script
 and recorded measurements.
 
