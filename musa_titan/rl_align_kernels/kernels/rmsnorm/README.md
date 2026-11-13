@@ -3,7 +3,7 @@
 ```python
 import torch
 
-from musa_titan.rl_align_kernels.rmsnorm import (
+from musa_titan.rl_align_kernels.kernels.rmsnorm import (
     rms_norm_batch_invariant,
     fused_add_rmsnorm_batch_invariant,
 )
@@ -23,22 +23,28 @@ to preserve the specified arithmetic.
 ## Layout
 
 ```text
-rmsnorm/
+rl_align_kernels/
 ├── __init__.py
 ├── kernels/
 │   ├── __init__.py
-│   ├── rmsnorm.py
-│   └── fused_add_rmsnorm.py
+│   └── rmsnorm/
+│       ├── __init__.py
+│       ├── rmsnorm.py
+│       ├── fused_add_rmsnorm.py
+│       └── README.md
 ├── tests/
-│   └── .gitkeep
-├── benchmarks/
-│   └── README.md
-└── README.md
+│   └── ops/
+│       └── rmsnorm/
+│           └── .gitkeep
+└── benchmarks/
+    └── rmsnorm/
+        └── README.md
 ```
 
-`kernels/` contains the implementations. `tests/` reserves the test location;
-test scripts are not distributed in this change. `benchmarks/` contains the
-[recorded operator measurements](benchmarks/README.md).
+`kernels/rmsnorm/` contains the implementations. `tests/ops/rmsnorm/` reserves the
+test location; test scripts are not distributed in this change.
+`benchmarks/rmsnorm/` contains the
+[recorded operator measurements](../../benchmarks/rmsnorm/README.md).
 
 ## Contract
 
@@ -55,7 +61,7 @@ test scripts are not distributed in this change. `benchmarks/` contains the
   and weight. `normalized` and `residual_sum` are differentiable; `rstd` and
   `residual_sum_fp32` are non-differentiable caches. Do not mutate these caches
   or weight before backward. Higher-order gradients are unsupported.
-- Importing `musa_titan.rl_align_kernels.rmsnorm` exposes the operator APIs. Calling
+- Importing `musa_titan.rl_align_kernels.kernels.rmsnorm` exposes the operator APIs. Calling
   `apply_pretrain_patch()` or `apply_rl_patch()` installs the Megatron/TE
   integration described below.
 - The package requires the existing Titan PyTorch/torch_musa/Triton environment.
@@ -123,7 +129,7 @@ reorganize a TransformerBlock into an SGLang decoder schedule.
 LayerNorm, unsupported devices/shapes, quantized normalization and zero-centered
 normalization inside TE fused Linear/MLP retain their original implementations.
 The integration has bounded model-parallel-size-one correctness coverage;
-the [kernel benchmarks](benchmarks/README.md) are not full-model or multi-rank
+the [kernel benchmarks](../../benchmarks/rmsnorm/README.md) are not full-model or multi-rank
 performance results.
 
 ## Native backward

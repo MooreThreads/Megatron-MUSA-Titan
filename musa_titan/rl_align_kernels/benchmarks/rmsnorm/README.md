@@ -1,6 +1,6 @@
 # RMSNorm benchmarks
 
-[Operator APIs and numerical contracts](../README.md).
+[Operator APIs and numerical contracts](../../kernels/rmsnorm/README.md).
 
 The comparison uses the previously extracted batch-invariant forward reference,
 not the installed library's automatic forward dispatcher. Ordinary reference

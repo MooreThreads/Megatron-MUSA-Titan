@@ -1,6 +1,6 @@
 """Out-of-place Triton fused add + RMSNorm with native MUSA backward.
 
-See ../README.md for source revisions and numerical contracts.
+See README.md beside this module for source revisions and numerical contracts.
 """
 
 import torch
