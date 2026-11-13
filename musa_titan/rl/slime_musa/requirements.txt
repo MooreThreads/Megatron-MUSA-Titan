@@ -1,0 +1,4 @@
+pylatexenc==2.11
+straw-queue==0.1.8
+ray[default]==2.54.0+musa
+wandb==0.25.0
