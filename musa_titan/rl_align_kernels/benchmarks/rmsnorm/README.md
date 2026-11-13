@@ -2,6 +2,31 @@
 
 [Operator APIs and numerical contracts](../../kernels/rmsnorm/README.md).
 
+## Run
+
+Run from the repository root using the existing extracted fixed-dispatch reference
+library, its build manifest and the standalone extracted residual-add source.
+These reference artifacts are external inputs; the script does not substitute
+the installed Megatron forward dispatcher.
+
+```bash
+PYTHONPATH=. MUSA_VISIBLE_DEVICES=0 python3 \
+  musa_titan/rl_align_kernels/benchmarks/rmsnorm/benchmark_rmsnorm_kernels.py \
+  --reference-library /path/to/extracted/kernels.so \
+  --reference-manifest /path/to/extracted/manifest.json \
+  --reference-bda /path/to/extracted/megatron_bias_dropout_add.py \
+  --rows 16 128 4096 131072 --rounds 3 --repeats 50 \
+  --output logs/rmsnorm-extracted-benchmark
+```
+
+The output directory must not already exist. It receives `manifest.json`,
+`results.json` and profiler traces. For each operator, the script measures forward
+and forward+backward and reports full-tensor output/gradient `max_abs_diff`.
+Use an idle device for performance measurements. The tables below retain the
+2026-11-10 measurements; they are not results of rerunning the script at this path.
+
+## Recorded measurements
+
 The comparison uses the previously extracted batch-invariant forward reference,
 not the installed library's automatic forward dispatcher. Ordinary reference
 RMSNorm directly launches the extracted `LayerNormGlobalKernelVlen`. The

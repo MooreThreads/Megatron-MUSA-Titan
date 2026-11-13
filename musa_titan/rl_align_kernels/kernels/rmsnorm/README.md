@@ -35,16 +35,21 @@ rl_align_kernels/
 ├── tests/
 │   └── ops/
 │       └── rmsnorm/
-│           └── .gitkeep
+│           ├── README.md
+│           ├── test_rmsnorm_kernels.py
+│           ├── test_megatron_rmsnorm_integration.py
+│           └── compare_rmsnorm_sources.py
 └── benchmarks/
     └── rmsnorm/
-        └── README.md
+        ├── README.md
+        └── benchmark_rmsnorm_kernels.py
 ```
 
-`kernels/rmsnorm/` contains the implementations. `tests/ops/rmsnorm/` reserves the
-test location; test scripts are not distributed in this change.
-`benchmarks/rmsnorm/` contains the
-[recorded operator measurements](../../benchmarks/rmsnorm/README.md).
+`kernels/rmsnorm/` contains the implementations.
+[Tests](../../tests/ops/rmsnorm/README.md) cover operator correctness, gradients,
+Megatron/TE integration and SGLang source comparisons.
+[Benchmarks](../../benchmarks/rmsnorm/README.md) contain the operator timing script
+and recorded measurements.
 
 ## Contract
 
