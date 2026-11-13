@@ -138,9 +138,9 @@ bash run_deepseekv3.sh
 Recipes are starting points for cluster-specific configuration, not one-command reproductions of the reported 10,000-GPU benchmark. See [RL examples](examples/rl) for the current RL recipe structure.
 
 Batch-invariant RMSNorm and fused residual-add RMSNorm are available in
-[`musa_titan.kernels`](musa_titan/kernels/README.md), with Triton forward and
+[`musa_titan.rl_align_kernels.rmsnorm`](musa_titan/rl_align_kernels/rmsnorm/README.md), with Triton forward and
 native MUSA backward. Both training patch entry points install the
-[Megatron/TE integration](musa_titan/kernels/README.md#megatron-integration)
+[Megatron/TE integration](musa_titan/rl_align_kernels/rmsnorm/README.md#megatron-integration)
 before model construction.
 
 ## Contributing

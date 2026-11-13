@@ -1,7 +1,7 @@
 """Triton RMSNorm forward with the native MUSA backward used by Megatron/TE.
 
 The fixed-row Triton algorithm follows SGLang's batch_invariant_ops RMSNorm.
-See README.md beside this module for source revisions and numerical contracts.
+See ../README.md for source revisions and numerical contracts.
 """
 
 import math

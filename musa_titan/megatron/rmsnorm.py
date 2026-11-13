@@ -7,8 +7,8 @@ import torch
 
 # hack(dinglei)
 # Use Titan's batch-invariant forward kernels at the existing normalization boundaries.
-from musa_titan.kernels import fused_add_rmsnorm_batch_invariant, rms_norm_batch_invariant
-from musa_titan.kernels.rmsnorm import _rms_norm_forward
+from musa_titan.rl_align_kernels.rmsnorm import fused_add_rmsnorm_batch_invariant, rms_norm_batch_invariant
+from musa_titan.rl_align_kernels.rmsnorm.kernels.rmsnorm import _rms_norm_forward
 #
 from musa_titan.utils.patching import git_commit, replace_attr
 
