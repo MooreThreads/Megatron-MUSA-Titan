@@ -157,10 +157,9 @@ def apply_patch():
         # hack(dinglei)
         # TE's fused Linear/MLP autograd still owns GEMM, communication and
         # backward. Supply its expected output buffer and actual forward rstd.
-        with torch.no_grad():
-            output, rstd = _rms_norm_forward(
-                input, weight.to(input.dtype), eps, save_rstd=True, out=ln_out,
-            )
+        output, rstd = _rms_norm_forward(
+            input, weight.to(input.dtype), eps, save_rstd=True, out=ln_out,
+        )
         return ln_out if ln_out is not None else output, None, rstd
         #
 
