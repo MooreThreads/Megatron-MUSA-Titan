@@ -95,7 +95,12 @@ which has a different reduction implementation and API.
 
 ## Megatron integration
 
-Call the training entry point **before constructing the model**:
+Set `USE_RL_ALIGNED_RMSNORM=1` before calling the training entry point and
+**before constructing the model**:
+
+```bash
+export USE_RL_ALIGNED_RMSNORM=1
+```
 
 ```python
 from musa_titan import apply_rl_patch  # or apply_pretrain_patch
@@ -105,6 +110,10 @@ apply_rl_patch()
 The shared Megatron installer applies `musa_titan.megatron.rmsnorm.apply_patch()`
 once. All replacements use the patch audit helper and report the Megatron
 checkout revision and installed Transformer Engine package version.
+If the variable is unset or has any value other than `1`, this installer does
+not apply RMSNorm patches. The switch also applies to direct calls to
+`musa_titan.megatron.rmsnorm.apply_patch()`; standalone operator APIs remain
+available. Changing the variable after installation does not undo patches.
 
 - **Standalone norms:** TE `RMSNorm.forward` and the RMSNorm branch of Titan's
   Megatron `FusedLayerNorm` use `rms_norm_batch_invariant`, including Q/K and

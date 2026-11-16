@@ -2,6 +2,7 @@
 
 from functools import partial, wraps
 from importlib.metadata import version
+import os
 
 import torch
 
@@ -52,9 +53,9 @@ def _take_cached(module, input):
 
 
 def apply_patch():
-    """Install once before constructing Megatron layers; preserve parameter objects."""
+    """Install once before layer construction when USE_RL_ALIGNED_RMSNORM=1."""
     global _PATCHED
-    if _PATCHED:
+    if _PATCHED or os.getenv("USE_RL_ALIGNED_RMSNORM") != "1":
         return
 
     import transformer_engine.pytorch as te
