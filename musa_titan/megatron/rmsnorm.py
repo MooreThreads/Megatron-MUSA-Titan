@@ -32,21 +32,6 @@ _AUTHORED = {
 }
 
 
-def _supported(input, weight):
-    return (
-        isinstance(input, torch.Tensor)
-        and input.device.type == "musa"
-        and input.ndim > 0
-        and input.shape[-1] > 0
-        and isinstance(weight, torch.Tensor)
-        and weight.device == input.device
-        and weight.ndim == 1
-        and weight.numel() == input.shape[-1]
-        and input.dtype in (torch.bfloat16, torch.float16, torch.float32)
-        and weight.dtype in (torch.bfloat16, torch.float16, torch.float32)
-    )
-
-
 def _weight(module, dtype):
     weight = module.weight
     if module.zero_centered_gamma:
@@ -112,7 +97,7 @@ def apply_patch():
         if cached is not None:
             return cached
         #
-        if args or kwargs or not _supported(input, self.weight) or FP8GlobalStateManager.is_fp8_enabled():
+        if args or kwargs or FP8GlobalStateManager.is_fp8_enabled():
             return original_te_forward(self, input, *args, **kwargs)
         dtype = maybe_autocast_dtype(default_dtype=self.weight.dtype)
         # hack(dinglei)
@@ -136,10 +121,10 @@ def apply_patch():
         if cached is not None:
             return cached
         #
-        if self.config.normalization != "RMSNorm" or not _supported(input, self.weight):
+        if self.config.normalization != "RMSNorm":
             return original_local_forward(self, input)
         # hack(dinglei)
-        # Route the supported RMSNorm branch to Titan without changing LayerNorm.
+        # Route the RMSNorm branch to Titan without changing LayerNorm.
         return rms_norm_batch_invariant(input, _weight(self, input.dtype), self.eps)
         #
 
@@ -158,7 +143,6 @@ def apply_patch():
         supported = (
             not zero_centered_gamma
             and quantizer is None and not FP8GlobalStateManager.is_fp8_enabled()
-            and _supported(input, weight)
             and otype in (input.dtype, TE_DType[input.dtype])
             and (ln_out is None or (
                 isinstance(ln_out, torch.Tensor) and ln_out.shape == input.shape
@@ -213,7 +197,6 @@ def apply_patch():
                     "use_custom_fsdp", "use_torch_fsdp2",
                 ))
                 or norm._forward_pre_hooks or norm._backward_hooks or norm._backward_pre_hooks
-                or not _supported(x, norm.weight)
                 or residual.shape != x.shape or residual.device != x.device
                 or residual.dtype != x.dtype or dtype != x.dtype
             ):
