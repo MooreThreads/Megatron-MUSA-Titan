@@ -87,13 +87,7 @@ def apply_patch():
     # Import fused_layer_norm before Transformer Engine.
     from . import fused_layer_norm
 
-    from transformer_engine.pytorch.utils import get_device_compute_capability
-
-    def _get_device_compute_capability():
-        return (8, 0)
-
-    get_device_compute_capability = _get_device_compute_capability
-    from packaging.version import Version as PkgVersion
+    import transformer_engine.pytorch
 
     if os.getenv("ENABLE_ZERO_BUBBLE", "0") == "1":
         from . import zbb_light

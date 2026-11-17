@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from musa_titan.rl.common import _MILES_AUTHORED, _MILES_COMMIT
-from musa_titan.utils.patching import replace_import_source
+from musa_titan.utils.patching import replace_source_fragment
 
 
 _REWRITE_IMPORT_NAMES = {
@@ -18,7 +18,7 @@ def _rewrite_miles_source(fullname: str, source: str) -> str:
         # Current Megatron removed the legacy training.tokenizer package and
         # exposes the public padding helper under core.tokenizers. Keep the
         # legacy fallback for older Megatron checkouts.
-        return replace_import_source(
+        return replace_source_fragment(
             source=source,
             original_source=(
                 "from megatron.training.tokenizer.tokenizer import "
@@ -49,7 +49,7 @@ def _rewrite_miles_source(fullname: str, source: str) -> str:
         )
     if fullname == "miles.backends.megatron_utils.model":
         # Keep Muon optional when the supported Megatron checkout does not ship it.
-        source = replace_import_source(
+        source = replace_source_fragment(
             source=source,
             original_source="from megatron.core.optimizer.muon import get_megatron_muon_optimizer\n",
             replacement_source="try:\n"
@@ -76,7 +76,7 @@ def _rewrite_miles_source(fullname: str, source: str) -> str:
         return source
     if fullname == "miles.backends.megatron_utils.actor":
         # Let broadcast/disk-delta modes load when optional P2P dependencies fail.
-        return replace_import_source(
+        return replace_source_fragment(
             source=source,
             original_source="from .update_weight.update_weight_from_distributed.p2p import UpdateWeightP2P\n",
             replacement_source="try:\n"

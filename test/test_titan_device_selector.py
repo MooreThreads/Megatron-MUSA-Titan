@@ -13,30 +13,23 @@ DCP_MODULE = "torch.distributed.checkpoint.filesystem"
 
 def load_helpers(torch, modules):
     tree = ast.parse(SOURCE.read_text(), filename=str(SOURCE))
-    names = {
-        "_get_available_device_type", "_patch_tensor_type", "_get_cuda_device_properties",
-        "_CudaCompatibilityDeviceProperties", "patch_after_import_torch",
-    }
+    names = {"_get_available_device_type", "_patch_tensor_type", "patch_after_import_torch"}
     body = [
         node for node in tree.body
-        if isinstance(node, (ast.ClassDef, ast.FunctionDef)) and node.name in names
+        if isinstance(node, ast.FunctionDef) and node.name in names
     ]
     if {node.name for node in body} != names:
-        raise AssertionError("Titan device helpers are missing")
+        raise AssertionError("Device helpers are missing")
     namespace = {"torch": torch, "sys": SimpleNamespace(modules=modules)}
-    namespace["_CUDA_COMPATIBILITY_CAPABILITY"] = next(
-        ast.literal_eval(node.value)
-        for node in tree.body
-        if isinstance(node, ast.Assign)
-        and any(
-            isinstance(target, ast.Name) and target.id == "_CUDA_COMPATIBILITY_CAPABILITY"
-            for target in node.targets
-        )
-    )
     exec(compile(ast.Module(body=body, type_ignores=[]), str(SOURCE), "exec"), namespace)
 
     def apply():
-        torchada = SimpleNamespace(apply_patches=lambda: None)
+        def apply_torchada():
+            torch.cuda.get_device_capability = torch.musa.get_device_capability
+            torch.cuda.get_device_properties = torch.musa.get_device_properties
+            torch.cuda._get_device_properties = torch.musa.get_device_properties
+
+        torchada = SimpleNamespace(apply_patches=apply_torchada)
         with patch.dict("sys.modules", {"torchada": torchada}):
             namespace["patch_after_import_torch"]()
 
@@ -57,7 +50,11 @@ class DeviceSelectorTests(unittest.TestCase):
         self.torch = SimpleNamespace(
             cuda=SimpleNamespace(is_available=lambda: False),
             Tensor=SimpleNamespace(type=lambda: "torch.musa.FloatTensor"),
-            musa=SimpleNamespace(is_available=lambda: True),
+            musa=SimpleNamespace(
+                is_available=lambda: True,
+                get_device_capability=lambda device=None: (3, 1),
+                get_device_properties=lambda device=None: DeviceProperties(),
+            ),
             _utils=SimpleNamespace(),
             _C=SimpleNamespace(_get_privateuse1_backend_name=lambda: "musa"),
             backends=SimpleNamespace(mps=SimpleNamespace(is_available=lambda: False)),
@@ -85,21 +82,15 @@ class DeviceSelectorTests(unittest.TestCase):
         self.assertIs(filesystem._get_available_device_type, self.fixed)
         self.assertEqual(filesystem._get_available_device_type(), "musa")
 
-    def test_cuda_properties_report_compatibility_and_preserve_native_fields(self):
-        native = DeviceProperties()
-        with patch.object(
-            self.torch.musa, "get_device_properties", return_value=native, create=True
-        ) as get_props:
-            self.apply()
-            self.apply()
-            self.assertEqual(self.torch.cuda.get_device_capability(device=0), (8, 0))
-            for getter in (self.torch.cuda.get_device_properties, self.torch.cuda._get_device_properties):
-                props = getter(device=1)
-                get_props.assert_called_with(1)
-                self.assertEqual((props.major, props.minor), (8, 0))
-                for field in ("name", "total_memory", "multi_processor_count"):
-                    self.assertEqual(getattr(props, field), getattr(native, field))
-            self.assertEqual((native.major, native.minor), (3, 1))
+    def test_capability_and_properties_keep_torchada_bindings(self):
+        self.apply()
+        self.apply()
+        self.assertIs(self.torch.cuda.get_device_capability, self.torch.musa.get_device_capability)
+        self.assertEqual(self.torch.cuda.get_device_capability(device=0), (3, 1))
+        for getter in (self.torch.cuda.get_device_properties, self.torch.cuda._get_device_properties):
+            self.assertIs(getter, self.torch.musa.get_device_properties)
+            props = getter(device=1)
+            self.assertEqual((props.major, props.minor), (3, 1))
 
     def test_third_party_dcp_selector_is_preserved(self):
         third_party = lambda: "custom"

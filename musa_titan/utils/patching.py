@@ -86,7 +86,7 @@ def replace_attr(owner,
     return original
 
 
-def replace_import_source(
+def replace_source_fragment(
     source,
     original_source,
     replacement_source,
@@ -99,7 +99,7 @@ def replace_import_source(
     expected_count=1,
     commit_branch_verified=False,
 ):
-    """Replace an exact import-related source fragment and log its provenance.
+    """Replace an exact source fragment and log its provenance.
 
     This is the source-level counterpart to :func:`replace_attr`.  It is
     intended for narrowly scoped compatibility rewrites that keep upstream

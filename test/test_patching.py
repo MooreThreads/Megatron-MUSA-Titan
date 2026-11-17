@@ -12,7 +12,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 helpers = runpy.run_path(str(ROOT / "musa_titan/utils/patching.py"))
 replace_attr = helpers["replace_attr"]
-replace_import_source = helpers["replace_import_source"]
+replace_source_fragment = helpers["replace_source_fragment"]
 git_commit = helpers["git_commit"]
 
 
@@ -39,7 +39,7 @@ class PatchingTest(unittest.TestCase):
         )
 
     def apply_source_patch(self, source, original, replacement, **kwargs):
-        return replace_import_source(
+        return replace_source_fragment(
             source,
             original,
             replacement,

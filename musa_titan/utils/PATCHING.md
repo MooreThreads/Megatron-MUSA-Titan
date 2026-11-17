@@ -65,10 +65,9 @@ alias modules explicitly with `aliases=(consumer_module,)`. They must still
 reference the original function. Apply patches before other consumers import
 the function; existing unlisted references are not updated.
 
-For a narrowly scoped import compatibility fallback, use
-`replace_import_source()` instead of an unverified `source.replace()`. It
+For a narrowly scoped source rewrite, use `replace_source_fragment()`. It
 requires the exact source fragment to occur once by default, returns a rewritten
-in-memory string, and leaves the upstream checkout unchanged. The import hook
+in-memory string, and leaves the upstream checkout unchanged. For an import fallback, the import hook
 must still gate the rewrite on the expected `ImportError.name`; this helper does
 not make unrelated import failures safe to suppress.
 

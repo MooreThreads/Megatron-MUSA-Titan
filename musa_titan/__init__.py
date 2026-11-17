@@ -56,32 +56,6 @@ def _patch_tensor_type():
     torch.Tensor.type = musa_type
 
 
-_CUDA_COMPATIBILITY_CAPABILITY = (8, 0)
-
-
-class _CudaCompatibilityDeviceProperties:
-    """Expose CUDA capability while delegating native MUSA properties."""
-
-    __slots__ = ("_properties",)
-    major, minor = _CUDA_COMPATIBILITY_CAPABILITY
-
-    def __init__(self, properties):
-        self._properties = properties
-
-    def __getattr__(self, name):
-        return getattr(self._properties, name)
-
-    def __repr__(self):
-        return (
-            f"{type(self).__name__}(name={self.name!r}, major={self.major}, minor={self.minor}, "
-            f"total_memory={self.total_memory}, multi_processor_count={self.multi_processor_count})"
-        )
-
-
-def _get_cuda_device_properties(device=None):
-    return _CudaCompatibilityDeviceProperties(torch.musa.get_device_properties(device))
-
-
 def patch_after_import_torch():
     from torchada import apply_patches
 
@@ -90,10 +64,6 @@ def patch_after_import_torch():
     if hasattr(torch.cuda, "_force_cuda_available"):
         torch.cuda._force_cuda_available = True
     torch.cuda.is_available = torch.musa.is_available
-    # Keep the CUDA-facing capability queries consistent after TorchAda.
-    torch.cuda.get_device_capability = lambda device=None: _CUDA_COMPATIBILITY_CAPABILITY
-    torch.cuda.get_device_properties = _get_cuda_device_properties
-    torch.cuda._get_device_properties = _get_cuda_device_properties
     torch._utils._get_available_device_type = _get_available_device_type
     # DCP may have captured the original helper before this initialization.
     # Update that alias without importing DCP or replacing third-party hooks.
@@ -132,8 +102,7 @@ def patch_sglang_cuda_compatibility():
 
     # Newer SGLang only imports torchada from ``is_musa()``.  Importing it
     # here moves its one-time patch application before our compatibility
-    # aliases are restored; otherwise the first later ``is_musa()`` call can
-    # let torchada overwrite (notably) ``torch.cuda.get_device_capability``.
+    # aliases are restored.
     setattr(is_musa, "_patched", True)
     is_musa.cache_clear()
 
@@ -201,12 +170,7 @@ def apply_rl_patch():
     set, for example from ``musa_titan.rl.miles_musa.setup()``.
     """
     _apply_megatron_patch()
-    # SGLang's ``is_musa()`` installs its own CUDA aliases when it is first
-    # evaluated.  Lock that detector before importing RL/SGLang consumers so
-    # it cannot replace the compatibility capability shim with the raw MUSA
-    # capability (for example, ``(3, 1)``), which makes Megatron reject GroupedGEMM.
-    # ``patch_sglang_cuda_compatibility`` is optional and returns False when this
-    # patch is used without SGLang.
+    # Initialize the SGLang detector before importing RL/SGLang consumers.
     patch_sglang_cuda_compatibility()
     from .rl.common import patch_sglang_device_capability
     patch_sglang_device_capability()

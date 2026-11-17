@@ -1,8 +1,10 @@
 """Extend native Core 0.19 arguments without copying community config mapping."""
 import os
 from functools import wraps
-from musa_titan.utils.patching import git_commit, replace_attr
-from megatron.training import arguments, argument_utils
+from inspect import getsourcelines
+
+from musa_titan.utils.patching import git_commit, replace_attr, replace_source_fragment
+from megatron.training import arguments, argument_utils, yaml_arguments
 from megatron.training.arguments import _add_moe_args
 from megatron.training.argument_utils import core_transformer_config_from_args
 
@@ -136,3 +138,33 @@ replace_attr(
     aliases=(arguments,),
     **_patch_metadata,
 )
+
+
+def _patch_grouped_gemm_capability(module, name):
+    validator = getattr(module, name)
+    lines, start_line = getsourcelines(validator)
+    check = (
+        '        assert dc[0] >= 8, "Unsupported compute capability for GroupedGEMM kernels."\n'
+    )
+    replacement = (
+        '        is_musa = hasattr(torch, "musa") and torch.musa.is_available()\n'
+        '        assert (dc == (3, 1) if is_musa else dc[0] >= 8), (\n'
+        '            "Unsupported compute capability for GroupedGEMM kernels."\n'
+        '        )\n'
+    )
+    metadata = dict(
+        _patch_metadata,
+        authored=dict(_patch_metadata["authored"], modified_date="2026-11-17"),
+        reason="Accept native MUSA capability (3, 1) for GroupedGEMM",
+        upstream_path=f"{module.__name__}.{name}",
+    )
+    source = replace_source_fragment("".join(lines), check, replacement, **metadata)
+    namespace = {}
+    # Keep the validator in its original module and preserve the starting line.
+    code = compile("\n" * (start_line - 1) + source, validator.__code__.co_filename, "exec")
+    exec(code, vars(module), namespace)
+    replace_attr(module, name, namespace[name], **metadata)
+
+
+_patch_grouped_gemm_capability(arguments, "validate_args")
+_patch_grouped_gemm_capability(yaml_arguments, "validate_yaml")
