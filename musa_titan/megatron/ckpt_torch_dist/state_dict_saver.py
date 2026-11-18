@@ -1,12 +1,12 @@
 """Replace world-group checkpoint save metadata gathers with all-gathers."""
 
 import torch.distributed as dist
-from megatron.core.dist_checkpointing.strategies import state_dict_saver
+from torch.distributed.checkpoint.utils import _DistWrapper
 
 from musa_titan.utils.patching import git_commit, replace_attr
 
 
-class CheckpointSaveWorldAllGatherWrapper(state_dict_saver._DistWrapper):
+class CheckpointSaveWorldAllGatherWrapper(_DistWrapper):
     """Use all-gather for checkpoint SavePlan and WriteResult metadata in WORLD.
 
     Core and NVRx keep their original planning, caching and finalization;
@@ -23,33 +23,36 @@ class CheckpointSaveWorldAllGatherWrapper(state_dict_saver._DistWrapper):
         return super().gather_object(obj)
 
 
-# Replace only the saver module's reference, leaving PyTorch's global class intact.
-# Core sync and async saves share its plan/finalize functions. An inherited
-# planning fallback that calls self.gather_object also uses the override above.
-replace_attr(
-    state_dict_saver,
-    "_DistWrapper",
-    CheckpointSaveWorldAllGatherWrapper,
-    reason="Replace world-group checkpoint save metadata gather with all-gather",
-    commits={"megatron": git_commit(state_dict_saver.__file__)},
-    authored={
-        "author": "Xiaoteng Cui",
-        "modified_date": "2026-10-04",
-        "upstream": {
-            "megatron": {
-                "branch": "core_v0.16.0_base",
-                "commit": "3bec9aa97",
-                "commit_date": "2026-02-26",
+# Core 0.20 uses PyTorch DCP for synchronous saves and NVRx for async saves.
+# Core 0.19 and earlier still have a saver-local wrapper to replace.
+try:
+    import megatron.core.dist_checkpointing.strategies.state_dict_saver as state_dict_saver
+except ModuleNotFoundError as error:
+    if error.name != "megatron.core.dist_checkpointing.strategies.state_dict_saver":
+        raise
+else:
+    replace_attr(
+        state_dict_saver,
+        "_DistWrapper",
+        CheckpointSaveWorldAllGatherWrapper,
+        reason="Replace world-group checkpoint save metadata gather with all-gather",
+        commits={"megatron": git_commit(state_dict_saver.__file__)},
+        authored={
+            "author": "Xiaoteng Cui",
+            "modified_date": "2026-10-04",
+            "upstream": {
+                "megatron": {
+                    "branch": "core_v0.16.0_base",
+                    "commit": "3bec9aa97",
+                    "commit_date": "2026-02-26",
+                },
             },
         },
-    },
-    upstream_path="megatron.core.dist_checkpointing.strategies.state_dict_saver._DistWrapper",
-    current_path="musa_titan/megatron/ckpt_torch_dist/state_dict_saver.py",
-)
+        upstream_path="megatron.core.dist_checkpointing.strategies.state_dict_saver._DistWrapper",
+        current_path="musa_titan/megatron/ckpt_torch_dist/state_dict_saver.py",
+    )
 
-# NVRx has its own saver-local reference, so replacing Core's alias alone does
-# not cover --async-strategy nvrx. Keep the dependency optional for mcore users;
-# a missing dependency inside an installed NVRx must still raise normally.
+# Keep NVRx optional. Surface import errors within an installed NVRx.
 try:
     import nvidia_resiliency_ext as nvrx
     from nvidia_resiliency_ext.checkpointing.async_ckpt import state_dict_saver as nvrx_saver

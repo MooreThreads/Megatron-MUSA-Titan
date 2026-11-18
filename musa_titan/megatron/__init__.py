@@ -8,7 +8,7 @@ def _warn_if_megatron_tag_mismatch():
     """Warn when the selected Megatron checkout differs from the expected tag."""
     import subprocess
 
-    expected_tag = "core_v0.19.0"
+    expected_tag = "core_v0.20.0"
     patch_home = os.environ.get("PATCH_HOME") or os.path.join(
         os.path.dirname(__file__), "..", ".."
     )

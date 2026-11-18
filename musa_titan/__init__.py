@@ -76,9 +76,13 @@ def patch_after_import_torch():
     _patch_tensor_type()
 
 def py_patch():
-    # Core 0.19 uses the standard override decorator added in Python 3.12.
-    # Keep the installed cp310 TE wheel and use its typing_extensions equivalent.
+    # Core imports Self and override from typing on Python 3.12.
     import typing
+
+    if not hasattr(typing, "Self"):
+        from typing_extensions import Self
+
+        typing.Self = Self
     if not hasattr(typing, "override"):
         from typing_extensions import override
         typing.override = override

@@ -147,7 +147,22 @@ from musa_titan.utils.offload import set_offloading_param, get_fine_grained_offl
 class TritonWeightedSwiGLUFunction(torch.autograd.Function):
     @staticmethod
     # bias is an optional argument
-    def forward(ctx, input, weights, fp8_input_store, fine_grained_offload: bool = False):
+    def forward(ctx, input, weights, fp8_input_store, *activation_args):
+        ctx.use_native_activation = False
+        if len(activation_args) == 3:
+            # Core 0.20 supplies clamp and SiTU-GLU scales after fp8_input_store.
+            clamp_value, gate_clamp_scale, _ = activation_args
+            ctx.use_native_activation = gate_clamp_scale is not None or (
+                clamp_value is not None and clamp_value > 0
+            )
+            if ctx.use_native_activation:
+                return WeightedSwiGLUFunction.forward(
+                    ctx, input, weights, fp8_input_store, *activation_args,
+                )
+            fine_grained_offload = False
+        else:
+            # Older callers may pass the MUSA-specific offload flag.
+            fine_grained_offload, = activation_args or (False,)
         fine_grained_offload_handler = (get_fine_grained_offload_handler()
                                         if get_fine_grained_offload_handler is not None else None)
         fine_grained_offload = fine_grained_offload and fine_grained_offload_handler is not None
@@ -173,6 +188,8 @@ class TritonWeightedSwiGLUFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
+        if ctx.use_native_activation:
+            return WeightedSwiGLUFunction.backward(ctx, grad_output)
         fine_grained_offload_handler = (get_fine_grained_offload_handler()
                                         if get_fine_grained_offload_handler is not None else None)
         if ctx.tensor_tag != None:
@@ -185,12 +202,23 @@ class TritonWeightedSwiGLUFunction(torch.autograd.Function):
         
         input = input.to(ctx.ori_input_dtype) if ctx.fp8_input_store else input
         tmp, wgrad = triton_weighted_silu_backward(grad_output, input, weights)
-        return tmp, wgrad, None, None
+        return (tmp, wgrad) + (None,) * (len(ctx.needs_input_grad) - 2)
 
 
 class MusaSwiGLUFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input, fp8_input_store, cpu_offload_input):
+    def forward(
+        ctx, input, fp8_input_store, cpu_offload_input, clamp_value=None,
+        gate_clamp_scale=None, linear_clamp_scale=None,
+    ):
+        ctx.use_native_activation = gate_clamp_scale is not None or (
+            clamp_value is not None and clamp_value > 0
+        )
+        if ctx.use_native_activation:
+            return SwiGLUFunction.forward(
+                ctx, input, fp8_input_store, cpu_offload_input,
+                clamp_value, gate_clamp_scale, linear_clamp_scale,
+            )
         input_for_backward = input.to(torch.float8_e4m3fn) if fp8_input_store else input
         if cpu_offload_input:
             input_for_backward.activation_offloading = True
@@ -201,24 +229,28 @@ class MusaSwiGLUFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
+        if ctx.use_native_activation:
+            return SwiGLUFunction.backward(ctx, grad_output)
         input = ctx.saved_tensors[0]
         input = input.to(ctx.ori_input_dtype) if ctx.fp8_input_store else input
-        return torch.ops.aten._fused_swiglu_backward(grad_output, input), None, None
+        grad_input = torch.ops.aten._fused_swiglu_backward(grad_output, input)
+        return (grad_input,) + (None,) * (len(ctx.needs_input_grad) - 1)
 
 
 
 from megatron.core.fusions import fused_bias_swiglu
+from megatron.core.fusions.fused_bias_swiglu import SwiGLUFunction, WeightedSwiGLUFunction
 from musa_titan.utils.patching import git_commit, replace_attr
 
 _patch_metadata = {
     "commits": {"megatron": git_commit(fused_bias_swiglu.__file__)},
     "authored": {
         "author": "Xiaoteng Cui",
-        "modified_date": "2026-10-29",
+        "modified_date": "2026-11-06",
         "upstream": {"megatron": {
-            "branch": "core_v0.19.0",
-            "commit": "5be9626709af2722333bf54797c954c09edeada3",
-            "commit_date": "2026-08-19T18:51:14+00:00",
+            "branch": "core_v0.20.0",
+            "commit": "685fb8bd970185e9ac3283fe32a5d6667bf4b268",
+            "commit_date": "2026-10-27T11:57:20-07:00",
         }},
     },
     "current_path": "musa_titan/megatron/fused_bias_swiglu.py",
